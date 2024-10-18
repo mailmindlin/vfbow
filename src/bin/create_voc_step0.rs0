@@ -1,0 +1,243 @@
+#![cfg(feature="opencv")]
+///! First step of creating a vocabulary is extracting features from a set of images. We save them to a file for next step
+
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+use core::slice;
+use std::{default, fs::{read_dir, OpenOptions}, io::{self, BufWriter, Write}, ops::Deref, path::{Path, PathBuf}};
+
+use clap::Parser;
+use ndarray::Array2;
+
+// fn wait() {
+//     cout << endl << "Press enter to continue" << endl;
+//     getchar();
+// }
+
+
+enum FeatureArrays {
+	U8(Vec<Array2<u8>>),
+	F32(Vec<Array2<f32>>),
+}
+
+
+fn load_features(path_to_images: impl Iterator<Item = PathBuf>, descriptor: Descriptor) -> FeatureArrays {
+    use opencv::prelude::*;
+    use opencv::core::{Vector, KeyPoint, Mat};
+    use opencv::mod_prelude::{ToInputArray, ToOutputArray};
+    use opencv::{features2d::*, xfeatures2d::*};
+    use opencv::core::Ptr;
+    
+    //select detector
+    enum Feature2D {
+        BRISK(Ptr<BRISK>),
+        ORB(Ptr<ORB>),
+        SURF(Ptr<SURF>),
+        AKAZE(Ptr<AKAZE>),
+    }
+
+    impl Feature2D {
+        fn detect_and_compute_def(
+            &mut self,
+            image: &impl ToInputArray,
+            mask: &impl ToInputArray,
+            keypoints: &mut Vector<KeyPoint>,
+            descriptors: &mut impl ToOutputArray,
+        ) -> opencv::error::Result<()> {
+            match self {
+                Feature2D::BRISK(p) => p.detect_and_compute_def(image, mask, keypoints, descriptors),
+                Feature2D::ORB(p) => p.detect_and_compute_def(image, mask, keypoints, descriptors),
+                Feature2D::SURF(p) => p.detect_and_compute_def(image, mask, keypoints, descriptors),
+                Feature2D::AKAZE(p) => p.detect_and_compute_def(image, mask, keypoints, descriptors),
+            }
+        }
+    }
+
+    println!("Create detector {:?}", descriptor);
+
+    let mut fdetector = match descriptor {
+        Descriptor::BRISK => Feature2D::BRISK(BRISK::create_def().unwrap()),
+        Descriptor::SURF => Feature2D::SURF(SURF::create(
+            15., 4, 2,
+            // C++ defaults
+            false, false,
+        ).unwrap()),
+        Descriptor::ORB => Feature2D::ORB(ORB::create(
+            2_000,
+            // C++ defaults
+            1.2, 8, 31, 0, 2, ORB_ScoreType::HARRIS_SCORE, 31, 20,
+        ).unwrap()),
+        Descriptor::AKAZE => Feature2D::AKAZE(AKAZE::create(
+            AKAZE_DescriptorType::DESCRIPTOR_MLDB,
+            0, 3, 1e-4,
+            // C++ defaults
+            4, 4, KAZE_DiffusivityType::DIFF_PM_G2, -1,
+        ).unwrap()),
+    };
+
+
+    let mut features = None;
+
+    println!("Extracting   features...");
+    for path in path_to_images {
+        println!("Reading image: {}", path.display());
+        let image = opencv::imgcodecs::imread(path.to_str().unwrap(), 0).unwrap();
+        if image.empty() {
+            println!("\tError: Could not open image: {}", path.display());
+            continue;
+        }
+        let mut keypoints = Vector::new();
+        let mut descriptors_cv = Mat::default();
+        fdetector.detect_and_compute_def(&image, &Mat::default(), &mut keypoints, &mut descriptors_cv).unwrap();
+        println!("\textracting features: total={}", keypoints.len());
+
+        match descriptors_cv.typ() {
+            opencv::core::CV_8UC1 => {
+                // u8
+                let features = match &mut features {
+					None => match features.insert(FeatureArrays::U8(Vec::new())) {
+						FeatureArrays::U8(features) => features,
+						_ => unreachable!(),
+					},
+					Some(FeatureArrays::U8(features)) => features,
+					Some(..) => panic!("Inconsistent array types detected"),
+				};
+
+                let mut descriptors = Array2::<u8>::zeros((descriptors_cv.rows() as usize, descriptors_cv.cols() as usize));
+                for (opencv::core::Point_::<i32> { x, y }, value) in descriptors_cv.iter::<u8>().unwrap() {
+                    match descriptors.get_mut((y as usize, x as usize)) {
+                        Some(dst) => {
+                            *dst = value;
+                        },
+                        None => {
+                            panic!("Index ({x}, {y}) out of bounds shape {:?}", descriptors.shape());
+                        }
+                    }
+                }
+                features.push(descriptors);
+            },
+            opencv::core::CV_32FC1 => {
+                let features = match &mut features {
+					None => match features.insert(FeatureArrays::F32(Vec::new())) {
+						FeatureArrays::F32(features) => features,
+						_ => unreachable!(),
+					},
+					Some(FeatureArrays::F32(features)) => features,
+					Some(..) => panic!("Inconsistent array types detected"),
+				};
+
+                let mut descriptors = Array2::<f32>::zeros((descriptors_cv.rows() as usize, descriptors_cv.cols() as usize));
+                for (opencv::core::Point_::<i32> { x, y }, value) in descriptors_cv.iter::<f32>().unwrap() {
+                    todo!("x/y/v {x} {y} {value}")
+                }
+
+                features.push(descriptors);
+            }
+            other => {
+                panic!("Unexpected matrix type {other}");
+            }
+        }
+
+        println!("\tdone detecting features");
+    }
+    features.expect("No images")
+}
+
+trait FeatureElement: Sized {
+    const DTY: u32;
+    fn write_bytes(data: &[Self], dst: impl Write) -> io::Result<()>;
+}
+
+impl FeatureElement for u8 {
+    const DTY: u32 = 0;
+    fn write_bytes(data: &[Self], mut dst: impl Write) -> io::Result<()> {
+        dst.write_all(data)
+    }
+}
+
+impl FeatureElement for f32 {
+    const DTY: u32 = 5;
+    fn write_bytes(data: &[Self], mut dst: impl Write) -> io::Result<()> {
+        for item in data {
+            let buf = item.to_le_bytes();
+            dst.write_all(&buf)?;
+        }
+        Ok(())
+    }
+}
+
+fn save_to_file<T: FeatureElement>(filename: &Path, features: &[Array2<T>], desc_name: Descriptor, rewrite: bool) -> io::Result<()> {
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .create_new(!rewrite)
+        .write(true)
+        .read(false)
+        .open(filename)
+        .expect("Unable to open output file");
+
+    let mut dst = BufWriter::new(file);
+    
+    let desc_name = format!("{desc_name:?}");
+    {
+        let name_len: u32 = desc_name.len().try_into().expect("desc_name too long (overflow u32)");
+        dst.write_all(&name_len.to_le_bytes())?;
+        dst.write_all(desc_name.as_bytes())?;
+        println!("\tWrite dn '{desc_name}' (len={name_len})");
+    }
+
+    let mut size: u64 = features.len().try_into().expect("Too many features (overflow u64)");
+    println!("\tWrite {size} features");
+    dst.write_all(&size.to_le_bytes())?;
+    for feature in features {
+        let data = feature.as_slice().expect("Matrices should be continuous");
+
+        let ncols: u32 = feature.ncols().try_into().unwrap();
+        dst.write_all(&ncols.to_le_bytes())?;
+
+        let nrows: u32 = feature.nrows().try_into().unwrap();
+        dst.write_all(&nrows.to_le_bytes())?;
+
+        let aux: u32 = T::DTY;
+        dst.write_all(&aux.to_le_bytes())?;
+
+        T::write_bytes(data, &mut dst)?;
+        dst.flush()?;
+    }
+    Ok(())
+}
+
+#[derive(Default, Clone, Copy, Debug, clap::ValueEnum)]
+enum Descriptor {
+    BRISK,
+    SURF,
+    #[default]
+    ORB,
+    AKAZE,
+}
+
+#[derive(clap::Parser)]
+struct Arguments {
+    descriptor: Descriptor,
+    output: PathBuf,
+    dir_with_images: PathBuf,
+}
+
+fn main() {
+    let args = Arguments::parse();
+    
+    let images = read_dir(&args.dir_with_images).unwrap()
+        .map(|v| v.unwrap())
+        .filter(|v| v.metadata().unwrap().is_file())
+        .map(|v| v.path());
+    let features = load_features(images, args.descriptor);
+
+    //save features to file
+    println!("\nSaving to {}", args.output.display());
+    match features {
+        FeatureArrays::U8(features) => save_to_file(&args.output, &features, args.descriptor, true),
+        FeatureArrays::F32(features) => save_to_file(&args.output, &features, args.descriptor, true),
+    }.expect("Error writing to output file");
+}
