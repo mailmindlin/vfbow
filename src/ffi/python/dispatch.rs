@@ -47,7 +47,7 @@ macro_rules! _dispatch_one {
 /// }
 /// ```
 macro_rules! dispatch {
-    // Empty case
+	// Empty case
 	{
 		($($variant:ident),+)
 	} => {};

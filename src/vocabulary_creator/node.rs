@@ -2,7 +2,7 @@ use ndarray::{CowArray, Ix1};
 
 #[derive(Debug)]
 pub(super) struct TerminalLeaf<'a, T> {
-    /// Feature of this node
+	/// Feature of this node
 	pub(super) feature: CowArray<'a, T, Ix1>,
 	/// index of the feature this node represent(only if leaf and it stop because not enough points to create a new leave.
 	/// In case the node is a terminal point, but has many points beloging to its cluster, then, this is not set.
@@ -24,8 +24,8 @@ pub(super) struct TerminalBranch<'a, T> {
 
 
 pub(super) enum BranchNode<'a, T> {
-    Terminal(Vec<TerminalLeaf<'a, T>>),
-    Intermediate(Vec<Leaf<'a, T>>),
+	Terminal(Vec<TerminalLeaf<'a, T>>),
+	Intermediate(Vec<Leaf<'a, T>>),
 }
 
 /// Leaf that may be expanded

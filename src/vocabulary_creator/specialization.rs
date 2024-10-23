@@ -87,49 +87,49 @@ impl VocabElement for f32 {
 
 
 pub(super) trait DistFunc: Sized {
-    fn dist_func(a: ArrayView1<Self>, b: ArrayView1<Self>) -> f32;
-    fn mean_values(features: &FeatureInfo<Self>, indices: &[u32]) -> Array1<Self>;
+	fn dist_func(a: ArrayView1<Self>, b: ArrayView1<Self>) -> f32;
+	fn mean_values(features: &FeatureInfo<Self>, indices: &[u32]) -> Array1<Self>;
 }
 
 impl DistFunc for f32 {
-    fn dist_func(a: ArrayView1<Self>, b: ArrayView1<Self>) -> f32 {
-        todo!("Distance f32")
-    }
+	fn dist_func(a: ArrayView1<Self>, b: ArrayView1<Self>) -> f32 {
+		todo!("Distance f32")
+	}
 
-    fn mean_values(features: &FeatureInfo<Self>, indices: &[u32]) -> Array1<Self> {
-        features.mean_value(indices.iter().map(|idx| *idx as usize))
-    }
+	fn mean_values(features: &FeatureInfo<Self>, indices: &[u32]) -> Array1<Self> {
+		features.mean_value(indices.iter().map(|idx| *idx as usize))
+	}
 }
 
 impl DistFunc for u8 {
-    fn dist_func(a: ArrayView1<Self>, b: ArrayView1<Self>) -> f32 {
-        assert_eq!(a.len(), b.len());
-        //TODO: We can do this without memory allocations
-        let x = (&a ^ &b)
-            .mapv_into_any(|x| x.count_ones())
-            .sum();
-        x as f32
-        /*const uchar *pa = a.ptr<uchar>(); // a & b are actually CV_8U
-        const uchar *pb = b.ptr<uchar>();
-        for(int i=0;i<a.cols;i++,pa++,pb++){
-            uchar v=(*pa)^(*pb);
-    #ifdef __GNUG__
-            ret+=__builtin_popcount(v);//only in g++
-    #else
-            ret+=(v& (1))!=0;
-            ret+=(v& (2))!=0;
-            ret+=(v& (4))!=0;
-            ret+=(v& (8))!=0;
-            ret+=(v& (16))!=0;
-            ret+=(v& (32))!=0;
-            ret+=(v& (64))!=0;
-            ret+=(v& (128))!=0;
-    #endif
-        }
-        return ret;*/
-    }
+	fn dist_func(a: ArrayView1<Self>, b: ArrayView1<Self>) -> f32 {
+		assert_eq!(a.len(), b.len());
+		//TODO: We can do this without memory allocations
+		let x = (&a ^ &b)
+			.mapv_into_any(|x| x.count_ones())
+			.sum();
+		x as f32
+		/*const uchar *pa = a.ptr<uchar>(); // a & b are actually CV_8U
+		const uchar *pb = b.ptr<uchar>();
+		for(int i=0;i<a.cols;i++,pa++,pb++){
+			uchar v=(*pa)^(*pb);
+	#ifdef __GNUG__
+			ret+=__builtin_popcount(v);//only in g++
+	#else
+			ret+=(v& (1))!=0;
+			ret+=(v& (2))!=0;
+			ret+=(v& (4))!=0;
+			ret+=(v& (8))!=0;
+			ret+=(v& (16))!=0;
+			ret+=(v& (32))!=0;
+			ret+=(v& (64))!=0;
+			ret+=(v& (128))!=0;
+	#endif
+		}
+		return ret;*/
+	}
 
-    fn mean_values(features: &FeatureInfo<Self>, indices: &[u32]) -> Array1<Self> {
-        features.mean_value(indices.iter().map(|idx| *idx as usize))
-    }
+	fn mean_values(features: &FeatureInfo<Self>, indices: &[u32]) -> Array1<Self> {
+		features.mean_value(indices.iter().map(|idx| *idx as usize))
+	}
 }

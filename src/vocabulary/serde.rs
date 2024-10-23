@@ -209,17 +209,17 @@ impl Serialize for Vocabulary {
 
 impl Deserialize for Vocabulary {
 	fn read_from(mut src: impl Read) -> std::io::Result<Self> {
-        let magic = {
-            let mut sig_buf = [0u8; size_of::<u64>()];
-            src.read_exact(&mut sig_buf)?;
-            u64::from_le_bytes(sig_buf)
-        };
-        match magic {
-            FBOW_MAGIC => {
-                // Parse FBOW vocabulary
-                println!("Reading as FBOW");
-                let params = FbowParams::read_from(&mut src)?;
-                println!("FBOW parameters: {params:?}");
+		let magic = {
+			let mut sig_buf = [0u8; size_of::<u64>()];
+			src.read_exact(&mut sig_buf)?;
+			u64::from_le_bytes(sig_buf)
+		};
+		match magic {
+			FBOW_MAGIC => {
+				// Parse FBOW vocabulary
+				println!("Reading as FBOW");
+				let params = FbowParams::read_from(&mut src)?;
+				println!("FBOW parameters: {params:?}");
 				let blocks = {
 					// We *could* read everything into memory and parse it, but I like this a bit better
 					let mut block_data = vec![0u8; params.block_size_bytes_wp as usize];
@@ -317,15 +317,14 @@ impl Deserialize for Vocabulary {
 					},
 					_ => todo!(),
 				}
-                // _data = std::unique_ptr<char[], decltype(&AlignedFree)>((char*)AlignedAlloc(_params._aligment, _params._total_size), &AlignedFree);
-                // if (_data.get() == nullptr) throw std::runtime_error("Vocabulary::fromStream Could not allocate data");
-                // str.read(_data.get(), _params._total_size);
-				todo!("Parse fbow")
-            },
-            VFBOW_MAGIC => {
-                todo!("Read VFBOW")
-            },
-            _ => Err(io::Error::new(io::ErrorKind::InvalidData, format!("Invalid signature {magic:#08x}"))),
-        }
+				// _data = std::unique_ptr<char[], decltype(&AlignedFree)>((char*)AlignedAlloc(_params._aligment, _params._total_size), &AlignedFree);
+				// if (_data.get() == nullptr) throw std::runtime_error("Vocabulary::fromStream Could not allocate data");
+				// str.read(_data.get(), _params._total_size);
+			},
+			VFBOW_MAGIC => {
+				todo!("Read VFBOW")
+			},
+			_ => Err(io::Error::new(io::ErrorKind::InvalidData, format!("Invalid signature {magic:#08x}"))),
+		}
 	}
 }
