@@ -434,7 +434,21 @@ impl super::Features<f32> for FeaturesF32 {
 			Self::Neon64(vec) => insert_array(vec, features),
 			Self::Array64(vec) => insert_array(vec, features),
 			Self::Generic { feature_len, data } => {
-				todo!("insert generic f32")
+				let feature_len = *feature_len;
+				data.reserve(feature_len * features.len());
+				for feature in features {
+					match feature.as_slice() {
+						Some(slice) => {
+							assert_eq!(slice.len(), feature_len, "Invalid feature length");
+							data.extend_from_slice(slice);
+						},
+						None => {
+							let vec = feature.to_vec();
+							assert_eq!(vec.len(), feature_len, "Invalid feature length");
+							data.extend_from_slice(&vec);
+						}
+					}
+				}
 			},
 		}
 	}
