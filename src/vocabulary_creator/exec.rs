@@ -67,8 +67,8 @@ impl<'a, T: DistFunc> InnerParams<'a, T> {
 		centers
 	}
 
-	fn assign_to_clusters(&self, findices: &[FIndex], center_features: &[CowArray<'_, T, Ix1>], assigments: &mut [Vec<FIndex>]) {
-		for a in assigments.iter_mut() {
+	fn assign_to_clusters(&self, findices: &[FIndex], center_features: &[CowArray<'_, T, Ix1>], assignments: &mut [Vec<FIndex>]) {
+		for a in assignments.iter_mut() {
 			a.clear();
 		}
 		/*if(omp) {
@@ -103,17 +103,22 @@ impl<'a, T: DistFunc> InnerParams<'a, T> {
 				.min_by(cmp_f32_pair)
 				.unwrap()
 				.0;
-			assigments[center_dist_min].push(*fi);
+			assignments[center_dist_min].push(*fi);
 		}
 		//check
-		//    for(int i=0;i<assigments.size();i++)
-		//        for(int j=0;j<assigments.size();j++){
-		//            if(i!=j){
-		//                for(auto c:*assigments[i])
-		//                    assert(std::find(assigments[j]->begin(),assigments[j]->end(),c)==assigments[j]->end());
-		//            }
-		//        }
+		#[cfg(debug_assertions)]
+		for i in 0..assignments.len() {
+			for j in 0..assignments.len() {
+				if i == j {
+					continue;
+				}
+				for c in &assignments[i] {
+					debug_assert!(!assignments[j].contains(c))
+				}
+			}
+		}
 	}
+	
 	fn recompute_centers(&self, assignments: &[Vec<FIndex>]) -> Vec<Array1<T>> {
 		assignments.iter()
 			.map(|assignment| T::mean_values(&self.features, &assignment))
