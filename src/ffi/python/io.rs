@@ -12,24 +12,6 @@ enum FileOrFileLike {
 }
 
 impl FileOrFileLike {
-	pub(super) fn from_pyobject(path_or_file_like: PyObject, read: bool, write: bool) -> PyResult<FileOrFileLike> {
-		Python::with_gil(|py| {
-			// is a path
-			if let Ok(string_ref) = path_or_file_like.downcast_bound::<PyString>(py) {
-				let string = string_ref.to_string_lossy().to_string();
-				return Ok(FileOrFileLike::Path(string.into()));
-			}
-
-			//TODO: support pathlib.Path
-
-			// is a file-like
-			match PyFileLikeObject::with_requirements(path_or_file_like, read, write, false, false) {
-				Ok(f) => Ok(FileOrFileLike::FileLike(f)),
-				Err(e) => Err(e)
-			}
-		})
-	}
-
 	pub(super) fn from_bound<'py>(path_or_file_like: &Bound<'py, PyAny>, read: bool, write: bool) -> PyResult<FileOrFileLike> {
 		let _e1 = match path_or_file_like.extract::<PathBuf>() {
 			Ok(path) => return Ok(Self::Path(path)),
