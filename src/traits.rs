@@ -1,4 +1,4 @@
-use std::{fs::File, io::{BufReader, Read, Result as IOResult, Write}, path::Path};
+use std::io::{Read, Result as IOResult, Write};
 
 pub(crate) type NodeId = u32;
 
@@ -40,21 +40,11 @@ impl DescriptorType {
 pub trait Serialize {
     /// Write to stream
     fn write_to(&self, dst: impl Write) -> IOResult<()>;
-    /// Write to file
-    fn write_file(&self, path: &Path) -> IOResult<()> {
-        let mut file = File::create(path)?;
-        self.write_to(file)
-    }
 }
 
 pub trait Deserialize: Sized {
     /// Read from stream
     fn read_from(src: impl Read) -> IOResult<Self>;
-    /// Read from file
-    fn read_file(path: &Path) -> IOResult<Self> {
-        let file = File::open(path)?;
-        Self::read_from(BufReader::new(file))
-    }
 }
 
 pub trait SelfHash {
