@@ -1,103 +1,65 @@
 
+use std::{collections::{hash_map::Entry, HashMap}, fmt::Debug, io, iter::FusedIterator};
 
-/*//float initialized to zero.
-struct FBOW_API _float{
-    float var=0;
-    inline float operator=(float &f){var=f;return var;}
-    inline operator float&() {return var;}
-    inline operator float() const{return var;}
-}*/
-
-use std::{collections::HashMap, fmt::Debug, io::{self, ErrorKind, Write}, iter::FusedIterator};
-
-use crate::traits::{Deserialize, SelfHash, Serialize};
-
-/// Convert size to u32 (for serialization)
-fn size_as_u32(size: usize) -> io::Result<u32> {
-    match u32::try_from(size) {
-        Ok(r) => Ok(r),
-        Err(e) => Err(io::Error::new(ErrorKind::InvalidData, e))
-    }
-}
-
-fn write_size(size: usize, dst: &mut impl Write) -> io::Result<()> {
-    let size = size_as_u32(size)?;
-    dst.write_all(&size.to_le_bytes())
-}
+use crate::{serde::{read_u32, read_u32ish, write_u32, write_u32ish}, traits::{Deserialize, SelfHash, Serialize}};
 
 /// Bag of words
 #[cfg_attr(feature="python", pyo3::pyclass(mapping, eq, frozen, module="vfbow", extends=pyo3::types::PyDict))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct FBOW(HashMap<u32, f32>);
 
-/*
-void fBow::toStream(std::ostream &str) const   {
-    uint32_t _size=size();
-    str.write((char*)&_size,sizeof(_size));
-    for(const auto & e:*this)
-        str.write((char*)&e,sizeof(e));
-}
-void fBow::fromStream(std::istream &str)    {
-    clear();
-    uint32_t _size;
-    str.read((char*)&_size,sizeof(_size));
-    for(uint32_t i=0;i<_size;i++){
-        std::pair<uint32_t,_float> e;
-        str.read((char*)&e,sizeof(e));
-        insert(e);
-    }
-} */
-
 impl FBOW {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self(HashMap::with_capacity(capacity))
+    }
+    
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    pub(crate) fn clear(&mut self) {
+    /// Clear bag
+    pub fn clear(&mut self) {
         self.0.clear();
     }
 
+    /// Iterate over items
     pub fn iter(&self) -> impl Iterator<Item = (u32, f32)> + ExactSizeIterator + FusedIterator + Debug + Clone + '_ {
         self.0.iter()
             .map(|(k, v)| (*k, *v))
     }
 
-    /// Returns the similitude score between to image descriptors using L2 norm
-    pub fn score(&self, other: &Self) -> f64 {
-        let mut it1 = self.iter().peekable();
-        let mut it2 = other.iter().peekable();
-        let mut score = 0.;
-    
-        while let Some(&(key1, value1)) = it1.peek() && let Some(&(key2, value2)) = it2.peek() {
-            // const auto& vi = v1_it->second;
-            // const auto& wi = v2_it->second;
-            
-            match key1.cmp(&key2) {
-                std::cmp::Ordering::Equal => {
-                    score += (value1 as f64) * (value2 as f64);
-                    // move v1 and v2 forward
-                    it1.next().unwrap();
-                    it2.next().unwrap();
-                }
-                std::cmp::Ordering::Less => {
-                    // move v1 forward
-                    //            v1_it = v1.lower_bound(v2_it->first);
-                    // while(v1_it!=v1_end&& v1_it->first<v2_it->first)
-                    // ++v1_it;
-                    todo!()
-                }
-                std::cmp::Ordering::Greater => {
-                    // move v2 forward
-                    //            v2_it = v2.lower_bound(v1_it->first);
-                    // while(v2_it!=v2_end && v2_it->first<v1_it->first)
-                    // ++v2_it;
-                    todo!()
+    pub fn remove(&mut self, key: u32) -> Option<f32> {
+        self.0.remove(&key)
+    }
 
-                    // v2_it = (first element >= v1_it.id)
-                },
+    /// Add weight to key
+    pub fn update(&mut self, key: u32, weight: f32) {
+        match self.0.entry(key) {
+            Entry::Occupied(mut entry) => {
+                *entry.get_mut() += weight;
+            },
+            Entry::Vacant(entry) => {
+                entry.insert(weight);
             }
         }
-    
+    }
+
+    /// Returns the similitude score between to image descriptors using L2 norm
+    pub fn score(&self, other: &Self) -> f64 {
+        // Iterate over smaller map
+        let it = if self.len() < other.len() {
+            self.0.iter()
+        } else {
+            other.0.iter()
+        };
+
+        let mut score = 0.;
+        for (key, value1) in it {
+            if let Some(value2) = other.0.get(key) {
+                score += (*value1 as f64) * (*value2 as f64);
+            }
+        }
+
         // ||v - w||_{L2} = sqrt( 2 - 2 * Sum(v_i * w_i) )
         //		for all i | v_i != 0 and w_i != 0 )
         // (Nister, 2006)
@@ -109,9 +71,15 @@ impl FBOW {
     }
 }
 
+impl AsRef<HashMap<u32, f32>> for FBOW {
+    fn as_ref(&self) -> &HashMap<u32, f32> {
+        &self.0
+    }
+}
+
 impl Serialize for FBOW {
     fn write_to(&self, mut dst: impl io::Write) -> io::Result<()> {
-        write_size(self.len(), &mut dst)?;
+        write_u32ish(self.len(), &mut dst)?;
         let mut row_buffer = [0u8; size_of::<u32>() + size_of::<f32>()];
         for (key, value) in self.iter() {
             //TODO: is this worth it?
@@ -138,53 +106,85 @@ impl SelfHash for FBOW {
     }
 }
 
-/// Bag of words with augmented information. For each word, keeps information about the indices of the elements that have been classified into the word
+/// Bag of words with augmented information
+/// 
+/// For each word, keeps information about the indices of the elements that have been classified into the word.
 /// 
 /// It is computed at the desired level
-#[cfg_attr(feature="python", pyo3::pyclass(mapping, eq, frozen))]
+#[cfg_attr(feature="python", pyo3::pyclass(mapping, eq, frozen, module="vfbow", extends=pyo3::types::PyDict))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct FBOW2(HashMap<u32, Vec<u32>>);
 
 impl FBOW2 {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self(HashMap::with_capacity(capacity))
+    }
+
+    pub(crate) fn insert(&mut self, key: u32, value: u32) {
+        match self.0.entry(key) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                entry.get_mut().push(value);
+            },
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(vec![value]);
+            },
+        }
+    }
+    
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    pub(crate) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.0.clear();
+    }
+}
+
+impl AsRef<HashMap<u32, Vec<u32>>> for FBOW2 {
+    fn as_ref(&self) -> &HashMap<u32, Vec<u32>> {
+        &self.0
     }
 }
 
 impl Serialize for FBOW2 {
     fn write_to(&self, mut dst: impl io::Write) -> io::Result<()> {
-        write_size(self.len(), &mut dst)?;
-        /*for(const auto &e:*this){
-            str.write((char*)&e.first,sizeof(e.first));
-            //now the vector
-            _size=e.second.size();
-            str.write((char*)&_size,sizeof(_size));
-            str.write((char*)&e.second[0],sizeof(e.second[0])*e.second.size());
-        }*/
-        todo!()
+        write_u32ish(self.len(), &mut dst)?;
+        for (key, values) in self.0.iter() {
+            write_u32(*key, &mut dst)?;
+            // Now write values
+            write_u32ish(values.len(), &mut dst)?;
+            //TODO: maybe transmute to u8
+            for value in values {
+                write_u32(*value, &mut dst)?;
+            }
+        }
+        Ok(())
     }
 }
 
 impl Deserialize for FBOW2 {
-    fn read_from(src: impl io::Read) -> io::Result<Self> {
-        /*uint32_t _sizeMap,_sizeVec;
-        std::vector<uint32_t> vec;
-        uint32_t key;
+    fn read_from(mut src: impl io::Read) -> io::Result<Self> {
+        let len = read_u32ish(&mut src)?;
+        let mut result = Self::with_capacity(len);
+        for _ in 0..len {
+            let key = read_u32(&mut src)?;
+            let values_len = read_u32ish(&mut src)?;
 
-        clear();
-        str.read((char*)&_sizeMap,sizeof(_sizeMap));
-        for(uint32_t i=0;i<_sizeMap;i++){
-            str.read((char*)&key,sizeof(key));
-            str.read((char*)&_sizeVec,sizeof(_sizeVec));//vector size
-            vec.resize(_sizeVec);
-            str.read((char*)&vec[0],sizeof(vec[0])*_sizeVec);
-            insert({key,vec});
-        }*/
-        todo!()
+            // Bulk read
+            //TODO: transmute from u8
+            let values = {
+                let mut values_bytes = vec![0u8; values_len * size_of::<u32>()];
+                src.read_exact(&mut values_bytes)?;
+                values_bytes
+                    .array_chunks::<{size_of::<u32>()}>()
+                    .map(|b| u32::from_le_bytes(*b))
+                    .collect::<Vec<_>>()
+            };
+            if result.0.insert(key, values).is_some() {
+                println!("Warning: duplicate key {key}");
+            }
+        }
+        Ok(result)
     }
 }
 
@@ -198,6 +198,6 @@ impl SelfHash for FBOW2 {
             seed^= idx + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     }
     return seed; */
-        todo!()
+        todo!("FBOW2::hash")
     }
 }
