@@ -2,9 +2,31 @@ use std::{fs::File, io::{BufReader, Read, Result as IOResult, Write}, path::Path
 
 pub(crate) type NodeId = u32;
 
-pub(crate) enum DescriptorType {
-    Float32,
-    Uint8,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DescriptorType {
+    Uint8 = 0,
+    Float32 = 5,
+}
+
+impl From<DescriptorType> for u32 {
+    fn from(value: DescriptorType) -> Self {
+        match value {
+            DescriptorType::Uint8 => 0,
+            DescriptorType::Float32 => 5,
+        }
+    }
+}
+
+impl TryFrom<u32> for DescriptorType {
+    type Error = ();//TODO: better error type
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Uint8),
+            5 => Ok(Self::Float32),
+            _ => Err(()),
+        }
+    }
 }
 
 impl DescriptorType {
