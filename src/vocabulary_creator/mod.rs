@@ -9,7 +9,7 @@ use rand::{rngs::StdRng, SeedableRng};
 use crate::{traits::{DescriptorType, NodeId}, vocabulary::{Vocabulary, VocabularyParams}};
 
 
-#[cfg_attr(feature="python", pyo3::pyclass(get_all, set_all, eq))]
+#[cfg_attr(feature="python", pyo3::pyclass(module="vfbow", get_all, set_all, eq))]
 #[derive(Clone, Debug, PartialEq, Hash)]
 pub struct VocabularyCreatorParams {
 	/// Braching factor
@@ -352,7 +352,7 @@ impl<'a, T: VocabElement> InnerResult<'a, T> {
 }
 
 /// This class creates the vocabulary
-#[cfg_attr(feature="python", pyo3::pyclass)]
+#[cfg_attr(feature="python", pyo3::pyclass(module="vfbow"))]
 pub struct VocabularyCreator {
 	params: VocabularyCreatorParams,
 	// tree: Mutex<Tree>,

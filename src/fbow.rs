@@ -26,7 +26,7 @@ fn write_size(size: usize, dst: &mut impl Write) -> io::Result<()> {
 }
 
 /// Bag of words
-#[cfg_attr(feature="python", pyo3::pyclass(mapping, eq, frozen))]
+#[cfg_attr(feature="python", pyo3::pyclass(mapping, eq, frozen, module="vfbow", extends=pyo3::types::PyDict))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct FBOW(HashMap<u32, f32>);
 

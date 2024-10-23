@@ -9,7 +9,7 @@
 use std::{fs::File, io::Read, path::{Path, PathBuf}, time::Instant};
 
 use clap::Parser;
-use fbow_rs::{VocabularyCreator, VocabularyCreatorParams, Serialize};
+use vfbow::{VocabularyCreator, VocabularyCreatorParams, Serialize};
 use ndarray::Array2;
 
 fn read_u32(src: &mut impl Read) -> u32 {

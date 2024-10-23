@@ -3,8 +3,9 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name ="fbow_rs"
+name ="vfbow"
 
 [tool.maturin]
-module-name = "fbow_rs"
+module-name = "vfbow"
 bindings = "pyo3"
+features = ["python"]
