@@ -1,0 +1,205 @@
+pub(super) trait AccumulateL2 {
+	type Accumulator: Sized;
+
+	fn init() -> Self::Accumulator;
+	fn update(self, other: Self, acc: Self::Accumulator) -> Self::Accumulator;
+	fn finish(acc: Self::Accumulator) -> f32;
+}
+
+pub(super) trait ElementL2 {
+	fn distance_l2(self, other: Self) -> f32;
+}
+
+impl ElementL2 for f32 {
+	#[inline]
+	fn distance_l2(self, other: Self) -> f32 {
+		let delta = self - other;
+		delta * delta
+	}
+}
+
+impl<T: ElementL2> AccumulateL2 for T {
+	type Accumulator = f32;
+
+	#[inline(always)]
+	fn init() -> Self::Accumulator { 0. }
+	#[inline(always)]
+	fn update(self, other: Self, acc: Self::Accumulator) -> Self::Accumulator {
+		acc + self.distance_l2(other)
+	}
+	#[inline(always)]
+	fn finish(acc: Self::Accumulator) -> f32 { acc }
+}
+
+pub(super) fn l2_slice(reference: &[f32], feature: &[f32]) -> f32 {
+	assert_eq!(reference.len(), feature.len());
+	
+	//substract, multiply and accumulate
+	let mut sum = 0.;
+	for i in 0..reference.len() {
+		let diff = feature[i] - reference[i];
+		sum += diff * diff
+	}
+	sum
+}
+
+pub(super) fn l2_array<const N: usize>(reference: &[f32; N], feature: &[f32; N]) -> f32 {
+	//substract, multiply and accumulate
+	let mut sum = 0.;
+	for i in 0..N {
+		let diff = feature[i] - reference[i];
+		sum += diff * diff
+	}
+	sum
+}
+
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+pub(super) unsafe fn l2_neon_slice(reference: &[std::arch::aarch64::float32x4_t], feature: &[std::arch::aarch64::float32x4_t]) -> f32 {
+	use std::arch::aarch64::{vadd_f32, vdupq_n_f32, vget_high_f32, vget_low_f32, vmlaq_f32, vpadd_f32, vsubq_f32, vget_lane_f32};
+	assert_eq!(reference.len(), feature.len());
+	
+	//substract, multiply and accumulate
+	let mut sum = vdupq_n_f32(0.);
+	for i in 0..reference.len() {
+		let diff = vsubq_f32(feature[i], reference[i]);
+		sum = vmlaq_f32(sum, diff, diff);
+	}
+	// Reduce pairwise, twice
+	let sum = vadd_f32(vget_high_f32(sum), vget_low_f32(sum));
+	vget_lane_f32::<0>(vpadd_f32(sum, sum))
+}
+
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+pub(super) unsafe fn l2_neon_array<const N: usize>(reference: &[std::arch::aarch64::float32x4_t; N], feature: &[std::arch::aarch64::float32x4_t; N]) -> f32 {
+	use std::arch::aarch64::{vadd_f32, vdupq_n_f32, vget_high_f32, vget_low_f32, vmlaq_f32, vpadd_f32, vsubq_f32, vget_lane_f32};
+	
+	//substract, multiply and accumulate
+	let mut sum = vdupq_n_f32(0.);
+	for i in 0..N {
+		//TODO: is it worth using get_unchecked here?
+		let diff = vsubq_f32(feature[i], reference[i]);
+		sum = vmlaq_f32(sum, diff, diff);
+	}
+	// Reduce pairwise, twice
+	let sum = vadd_f32(vget_high_f32(sum), vget_low_f32(sum));
+	vget_lane_f32::<0>(vpadd_f32(sum, sum))
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "sse3")]
+pub(super) unsafe fn l2_sse_slice(reference: &[std::arch::x86_64::__m128], feature: &[std::arch::x86_64::__m128]) -> f32 {
+	assert_eq!(reference.len(), feature.len());
+	use std::arch::x86_64::{_mm_cvtss_f32, _mm_hadd_ps, _mm_setzero_ps, _mm_mul_ps, _mm_add_ps, _mm_sub_ps};
+	//substract, multiply and accumulate
+	let mut sum = _mm_setzero_ps();
+	for i in 0..reference.len() {
+		let diff = _mm_sub_ps(feature[i], reference[i]);
+		let diff_sq = _mm_mul_ps(diff, diff);
+		sum = _mm_add_ps(sum, diff_sq);
+	}
+
+	// Reduce pairwise, twice
+	let sum = _mm_hadd_ps(sum,sum);
+	let sum = _mm_hadd_ps(sum,sum);
+	_mm_cvtss_f32(sum)
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "sse3")]
+pub(super) unsafe fn l2_sse_array<const N: usize>(reference: &[std::arch::x86_64::__m128; N], feature: &[std::arch::x86_64::__m128; N]) -> f32 {
+	use std::arch::x86_64::{_mm_cvtss_f32, _mm_hadd_ps, _mm_setzero_ps, _mm_mul_ps, _mm_add_ps, _mm_sub_ps};
+	//substract, multiply and accumulate
+	let mut sum = _mm_setzero_ps();
+	for i in 0..N {
+		let diff = _mm_sub_ps(feature[i], reference[i]);
+		let diff_sq = _mm_mul_ps(diff, diff);
+		sum = _mm_add_ps(sum, diff_sq);
+	}
+
+	// Reduce pairwise, twice
+	let sum = _mm_hadd_ps(sum,sum);
+	let sum = _mm_hadd_ps(sum,sum);
+	_mm_cvtss_f32(sum)
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx")]
+pub(super) unsafe fn l2_avx_slice(reference: &[std::arch::x86_64::__m256], feature: &[std::arch::x86_64::__m256]) -> f32 {
+	use std::{arch::x86_64::{_mm256_add_ps, _mm256_hadd_ps, _mm256_mul_ps, _mm256_setzero_ps, _mm256_store_ps, _mm256_sub_ps}, ptr};
+	assert_eq!(reference.len(), feature.len());
+	
+	//substract, multiply and accumulate
+	let mut sum = _mm256_setzero_ps();
+	for i in 0..reference.len() {
+		let diff = _mm256_sub_ps(feature[i], reference[i]);
+		let diff_sq = _mm256_mul_ps(diff, diff);
+		sum = _mm256_add_ps(sum, diff_sq);
+	}
+	// Reduce pairwise, twice
+	let sum = _mm256_hadd_ps(sum,sum);
+	let sum = _mm256_hadd_ps(sum,sum);
+	//TODO: it might be worth doing another AVX reduce + element load instead of this
+	#[repr(align(32))]
+	struct Memory([f32; 8]);
+	let mut memory = Memory([0.; 8]);
+	_mm256_store_ps(ptr::addr_of_mut!(memory.0[0]), sum);
+	memory.0[0] + memory.0[4]
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx")]
+pub(super) unsafe fn l2_avx_array<const N: usize>(reference: &[std::arch::x86_64::__m256; N], feature: &[std::arch::x86_64::__m256; N]) -> f32 {
+	use std::{arch::x86_64::{_mm256_add_ps, _mm256_hadd_ps, _mm256_mul_ps, _mm256_setzero_ps, _mm256_store_ps, _mm256_sub_ps}, ptr};
+	
+	//substract, multiply and accumulate
+	let mut sum = _mm256_setzero_ps();
+	for i in 0..N {
+		let diff = _mm256_sub_ps(feature[i], reference[i]);
+		let diff_sq = _mm256_mul_ps(diff, diff);
+		sum = _mm256_add_ps(sum, diff_sq);
+	}
+	// Reduce pairwise, twice
+	let sum = _mm256_hadd_ps(sum,sum);
+	let sum = _mm256_hadd_ps(sum,sum);
+	//TODO: it might be worth doing another AVX reduce + element load instead of this
+	#[repr(align(32))]
+	struct Memory([f32; 8]);
+	let mut memory = Memory([0.; 8]);
+	_mm256_store_ps(ptr::addr_of_mut!(memory.0[0]), sum);
+	memory.0[0] + memory.0[4]
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx512f")]
+pub(super) unsafe fn l2_avx512_slice(reference: &[std::arch::x86_64::__m512], feature: &[std::arch::x86_64::__m512]) -> f32 {
+	use std::arch::x86_64::{_mm512_add_ps, _mm512_mul_ps, _mm512_reduce_add_ps, _mm512_setzero_ps, _mm512_sub_ps};
+	assert_eq!(reference.len(), feature.len());
+	
+	//substract, multiply and accumulate
+	let mut sum = _mm512_setzero_ps();
+	for i in 0..reference.len() {
+		let diff = _mm512_sub_ps(feature[i], reference[i]);
+		let diff_sq = _mm512_mul_ps(diff, diff);
+		sum = _mm512_add_ps(sum, diff_sq);
+	}
+	// Reduce pairwise, twice
+	_mm512_reduce_add_ps(sum)
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx512f")]
+pub(super) unsafe fn l2_avx512_array<const N: usize>(reference: &[std::arch::x86_64::__m512; N], feature: &[std::arch::x86_64::__m512; N]) -> f32 {
+	use std::arch::x86_64::{_mm512_add_ps, _mm512_mul_ps, _mm512_reduce_add_ps, _mm512_setzero_ps, _mm512_sub_ps};
+	
+	//substract, multiply and accumulate
+	let mut sum = _mm512_setzero_ps();
+	for i in 0..N {
+		let diff = _mm512_sub_ps(feature[i], reference[i]);
+		let diff_sq = _mm512_mul_ps(diff, diff);
+		sum = _mm512_add_ps(sum, diff_sq);
+	}
+	// Reduce pairwise, twice
+	_mm512_reduce_add_ps(sum)
+}
