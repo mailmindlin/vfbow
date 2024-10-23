@@ -173,7 +173,7 @@ impl<E: Sized + ValidZeroBits + Copy, const N: usize, const F: usize> FromArray<
 
 			Cow::Borrowed(bytes)
 		} else {
-			todo!()
+			todo!("{} as_slice copy", std::any::type_name::<Self>())
 		}
 	}
 }
@@ -356,7 +356,7 @@ impl Deserialize for FeaturesU8 {
 			//TODO: do we have to call this repeatedly?
 			let n = src.read_vectored(&mut feature_bufs)?;
 			assert_eq!(n, features.len() * feature_len);
-			todo!()
+			todo!("FeaturesU8 read_from")
 		} else {
 			let mut features = Vec::with_capacity(num_features);
 			for _ in 0..num_features {
@@ -368,7 +368,7 @@ impl Deserialize for FeaturesU8 {
 				feature_len,
 				features,
 			})*/
-			todo!()
+			todo!("FeaturesU8 read_from")
 		}
 	}
 }
@@ -464,7 +464,7 @@ impl Features<u8> for FeaturesU8 {
 				// 	None => Cow::Owned(value.to_vec()),
 				// };
 				// QueryU8::Generic(SliceQuery { features: &data, value })
-				todo!()
+				todo!("query generic u8")
 			},
 		}
 	}

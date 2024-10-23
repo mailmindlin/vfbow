@@ -2,7 +2,7 @@
 use std::arch::{is_aarch64_feature_detected, aarch64::float32x4_t};
 #[cfg(target_arch="x86_64")]
 use std::arch::{is_x86_feature_detected, x86_64::{__m128, __m256, __m512}};
-use std::{borrow::Cow, mem::MaybeUninit};
+use std::{any, borrow::Cow, mem::MaybeUninit};
 
 use ndarray::ArrayView1;
 
@@ -112,12 +112,12 @@ impl<E: Sized + Copy, const N: usize> FromArray<f32> for TransmuteArray<E, N> {
 			// }
 
 			// unsafe { dst.assume_init_mut() }
-			todo!()
+			todo!("{} from_array", any::type_name::<Self>())
 		}
 	}
 
 	fn from_slice<'a>(dst: &'a mut MaybeUninit<Self>, slice: &[f32]) -> &'a mut Self {
-		todo!()
+		todo!("{} from_slice", any::type_name::<Self>())
 		/*assert_ne!(size_of::<E>(), 0, "Can't use ZSTs");
 		
 		let dst_u8 = {
@@ -150,10 +150,9 @@ impl<E: Sized + Copy, const N: usize> FromArray<f32> for TransmuteArray<E, N> {
 			assert!(sfx.is_empty());
 
 			// Cow::Borrowed(bytes)
-			todo!()
 		} else {
-			todo!()
 		}
+		todo!("{} as_slice", any::type_name::<Self>())
 	}
 }
 
@@ -435,7 +434,7 @@ impl super::Features<f32> for FeaturesF32 {
 			Self::Neon64(vec) => insert_array(vec, features),
 			Self::Array64(vec) => insert_array(vec, features),
 			Self::Generic { feature_len, data } => {
-				todo!()
+				todo!("insert generic f32")
 			},
 		}
 	}
@@ -452,7 +451,7 @@ impl super::Features<f32> for FeaturesF32 {
 			Self::Avx64(vec) => QueryF32::Avx64(AlignQuery::new(vec, value)),
 			Self::Array64(vec) => QueryF32::Array64(AlignQuery::new(vec, value)),
 			Self::Generic { .. } => {
-				todo!()
+				todo!("query generic f32")
 				// QueryF32::Generic(AlignQuery::new_f32(vec, value)),
 			}
 		}

@@ -3,7 +3,7 @@ use std::{cmp, collections::HashMap, ffi::CStr, io::{self, ErrorKind, Read, Writ
 use arrayvec::ArrayString;
 use ndarray::ArrayView1;
 
-use crate::{traits::DescriptorType, vocabulary::VocabularyBuilder, Deserialize, Serialize};
+use crate::{traits::DescriptorType, vocabulary::{VocabularyBuilder, VocabularyParams}, Deserialize, Serialize};
 
 use super::Vocabulary;
 
@@ -310,12 +310,21 @@ impl Deserialize for Vocabulary {
 							}, leaves.iter().map(|(_info, feat)| ArrayView1::from(feat)));
 							if let Some(children) = children {
 								for ((c_info, _), cb) in children {
-
+									todo!()
 								}
 							}
 						}
+						assert!(block_cache.is_empty());
+						drop(block_cache);
+
+						let mut v_params = VocabularyParams::empty();
+						v_params.set_name(&params.desc_name);
+						v_params.desc_type = params.desc_type;
+						v_params.m_k = params.m_k;
+
+						return Ok(builder.finish(v_params))
 					},
-					_ => todo!(),
+					dt => todo!("Deserialize {dt:?}"),
 				}
 				// _data = std::unique_ptr<char[], decltype(&AlignedFree)>((char*)AlignedAlloc(_params._aligment, _params._total_size), &AlignedFree);
 				// if (_data.get() == nullptr) throw std::runtime_error("Vocabulary::fromStream Could not allocate data");

@@ -10,7 +10,7 @@ use ndarray::{Array1, CowArray, Ix1};
 use node::{Branch, Leaf, Node, TerminalBranch, TerminalLeaf};
 use rand::{rngs::StdRng, SeedableRng};
 use rayon::ScopeFifo;
-use specialization::VocabElement;
+pub(crate) use specialization::VocabElement;
 
 use crate::{traits::NodeId, vocabulary::{Vocabulary, VocabularyBuilder, VocabularyParams}};
 
