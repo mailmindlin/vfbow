@@ -1,0 +1,126 @@
+use ndarray::{Array1, Array2};
+
+use super::CreateVocabularyError;
+
+
+struct FeatureIndex {
+	/// Index into vector of matrices
+	midx: usize,
+	/// Matrix row
+	fidx: usize,
+}
+
+impl FeatureIndex {
+	const fn new(midx: usize, fidx: usize) -> Self {
+		Self {
+			midx,
+			fidx,
+		}
+	}
+}
+
+/// Struct to acces the features as a unique vector
+pub(super) struct FeatureInfo<T> {
+    //TODO: I bet we can save some memory (and cache misses!) by converting all of this to a binary search
+	finfo: Vec<FeatureIndex>,
+	features: Vec<Array2<T>>,
+}
+
+impl<T> FeatureInfo<T> {
+	pub(super) fn create(mut features: Vec<Array2<T>>) -> Result<Self, CreateVocabularyError> {
+        // Ignore empty arrays
+        features.retain(|feature| !feature.is_empty());
+
+        let desc_cols = {
+            let Some(feature0) = features.first() else {
+                return Err(CreateVocabularyError::NoFeatures)
+            };
+            let desc_cols = feature0.ncols();
+            if desc_cols == 0 {
+                return Err(CreateVocabularyError::EmptyFeature);
+            }
+            desc_cols
+        };
+
+		let size = features.iter()
+			.map(|feature| feature.nrows())
+			.sum();
+		let mut finfo = Vec::with_capacity(size);
+		for (midx, feature) in features.iter().enumerate() {
+            if feature.ncols() != desc_cols {
+                return Err(CreateVocabularyError::ArrayDimMismatch);
+            }
+
+			for i in 0..feature.nrows() {
+				finfo.push(FeatureIndex::new(midx, i));
+			}
+		}
+		Ok(Self { finfo, features })
+	}
+    
+    pub(super) fn feature_len(&self) -> usize {
+        self.features[0].ncols()
+    }
+
+	/// Total number of rows
+	pub(super) fn len(&self) -> usize {
+		self.finfo.len()
+	}
+	/// Get the n<sup>th</sup> feature
+	pub(super) fn get(&self, i: usize) -> ndarray::ArrayView1<'_, T> {
+		let idx = &self.finfo[i];
+		self.features[idx.midx].row(idx.fidx)
+	}
+}
+
+impl FeatureInfo<f32> {
+    pub(super) fn mean_value(&self, indices: impl ExactSizeIterator<Item = usize>) -> Array1<f32> {
+        let len = indices.len();
+        let mut mean = Array1::<f32>::zeros([self.feature_len()]);
+        for idx in indices {
+            let feature = self.get(idx);
+            mean += &feature;
+        }
+
+        mean *= (len as f32).recip();
+
+        mean
+    }
+}
+
+impl FeatureInfo<u8> {
+    pub(super) fn mean_value(&self, indices: impl ExactSizeIterator<Item = usize>) -> Array1<u8> {
+        let num_indices = indices.len();
+        let feature_len = self.feature_len();
+
+        // Threashold
+        let threshold = (num_indices / 2 + num_indices % 2).try_into().unwrap();
+        
+        //TODO: shrink the size of the counters for smaller descriptors (reduce memory bandwidth)
+        //determine number of bytes of the binary descriptor
+        let mut sum = vec![([0u32; 8], 0xFF_u8); feature_len];
+        // Track which bits we care about
+        let mut mean = Array1::<u8>::zeros([self.feature_len()]);
+
+        for idx in indices {
+            //TODO: we can definately speed this up with SIMD
+            let feature = self.get(idx);
+            for (idx, (&p, (sum, mask))) in feature.iter().zip(sum.iter_mut()).enumerate() {
+                let p = p & *mask;
+                //TODO: is it worth using highest_one_bit? Or is that just less optimizable?
+                for bit in 0..8 {
+                    let bit_mask = 1u8 << bit;
+                    if p & bit_mask != 0 {
+                        sum[bit] += 1;
+                        if sum[bit] > threshold {
+                            // We've exceeded the threshold, skip this one in future calculations
+                            *mask &= !bit_mask;
+                            mean[idx] |= bit_mask;
+                        }
+                    }
+                }
+            }
+        }
+        mean
+    }
+}

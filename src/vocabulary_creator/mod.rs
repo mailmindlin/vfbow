@@ -1,21 +1,27 @@
-// mod exec;
+mod exec;
+mod feature;
+mod node;
+mod specialization;
 
-use core::{error, range::Range};
-use std::{arch::is_aarch64_feature_detected, collections::HashMap, marker::PhantomData, num::NonZeroUsize, ops::Index, process::id, sync::Mutex, u32};
+use std::{collections::VecDeque, mem, num::NonZeroUsize, sync::Mutex, u32};
 
-use ndarray::{ArrayView1, CowArray, Ix1};
+use feature::FeatureInfo;
+use ndarray::{Array1, CowArray, Ix1};
+use node::{Branch, Leaf, Node, TerminalBranch, TerminalLeaf};
 use rand::{rngs::StdRng, SeedableRng};
+use rayon::ScopeFifo;
+use specialization::VocabElement;
 
-use crate::{traits::{DescriptorType, NodeId}, vocabulary::{Vocabulary, VocabularyParams}};
+use crate::{traits::NodeId, vocabulary::{Vocabulary, VocabularyBuilder, VocabularyParams}};
 
 
 #[cfg_attr(feature="python", pyo3::pyclass(module="vfbow", get_all, set_all, eq))]
 #[derive(Clone, Debug, PartialEq, Hash)]
+#[allow(non_snake_case)]
 pub struct VocabularyCreatorParams {
 	/// Braching factor
 	pub k: u32,
 	/// Maximum tree depth
-	#[allow(non_snake_case)]
 	pub L: Option<u32>,
 	/// Number of threads to use while computing
 	/// 
@@ -39,240 +45,17 @@ impl Default for VocabularyCreatorParams {
 	}
 }
 
-struct FeatureIndex {
-	/// Index into vector of matrices
-	midx: usize,
-	/// Matrix row
-	fidx: usize,
-}
-
-impl FeatureIndex {
-	const fn new(midx: usize, fidx: usize) -> Self {
-		Self {
-			midx,
-			fidx,
-		}
-	}
-}
-
-/// Struct to acces the features as a unique vector
-struct FeatureInfo<T> {
-	finfo: Vec<FeatureIndex>,
-	features: Vec<ndarray::Array2<T>>,
-}
-
-impl<T> FeatureInfo<T> {
-	fn create(features: Vec<ndarray::Array2<T>>) -> Self {
-		let size = features.iter()
-			.map(|feature| feature.nrows())
-			.sum();
-		let mut finfo = Vec::with_capacity(size);
-		for (midx, feature) in features.iter().enumerate() {
-			for i in 0..feature.nrows() {
-				finfo.push(FeatureIndex::new(midx, i));
-			}
-		}
-		Self { finfo, features }
-	}
-
-	fn info(&self, i: usize) -> &FeatureIndex {
-		&self.finfo[i]
-	}
-
-	/// Total number of rows
-	fn len(&self) -> usize {
-		self.finfo.len()
-	}
-	/// Get the n<sup>th</sup> feature
-	fn get(&self, i: usize) -> ndarray::ArrayView1<'_, T> {
-		let idx = &self.finfo[i];
-		self.features[idx.midx].row(idx.fidx)
-	}
-}
-
-struct Node<'a, T> {
-	/// id of this node in the tree
-	id: NodeId,
-	/// id of the parent node
-	parent: NodeId,
-	/// Feature of this node
-	feature: CowArray<'a, T, Ix1>,
-	//index of the feature this node represent(only if leaf and it stop because not enough points to create a new leave.
-	//In case the node is a terminal point, but has many points beloging to its cluster, then, this is not set.
-	//In other words, it is only used in nn search problems where L=-1
-	feat_idx: Option<u32>,
-	children: Vec<NodeId>,
-	/// if leaf, its weight and the word id
-	weight: f32,
-}
-
-/*impl<T> Default for Node<T> {
-	fn default() -> Self {
-		Self {
-			id: u32::MAX,
-			parent: u32::MAX,
-			feature: (),
-			feat_idx: u32::MAX,
-			children: Vec::new(),
-			weight: 1.
-		}
-	}
-}*/
-
-impl<'a, T> Node<'a, T> {
-	fn is_leaf(&self) -> bool {
-		self.children.is_empty()
-	}
-
-	fn new(id: NodeId, parent: NodeId, feature: CowArray<'a, T, Ix1>, feat_idx: Option<u32>) -> Self {
-		Self {
-			id,
-			parent,
-			feature,
-			feat_idx,
-			children: Vec::new(),
-			weight: 1.,
-		}
-	}
-}
-struct Tree<'a, T>(HashMap<NodeId, Node<'a, T>>);
-
-impl<'a, T> Tree<'a,T> {
-	fn new() -> Self {
-		/*let mut n = Node::default();
-		n.id = 0;
-		let mut nodes = HashMap::new();
-		nodes.insert(0, n);
-		Self(nodes)*/
-		todo!()
-	}
-
-	fn add(&mut self, new_nodes: Vec<Node<'a,T>>, parent_id: NodeId) {
-		let parent = self.0.get_mut(&parent_id)
-			.expect("Invalid parent id");
-		parent.children.extend(
-			new_nodes
-				.iter()
-				.map(|node| node.id)
-		);
-
-		for node in new_nodes {
-			let id = node.id;
-			self.0.insert(id, node);
-		}
-	}
-
-	fn len(&self) -> usize {
-		self.0.len()
-	}
-}
-
-
-trait VocabElement {
-	const MIN_ALIGNMENT: usize;
-	const TYPE: DescriptorType;
-	fn prefer_alignment(_ncols: NonZeroUsize) -> usize {
-		Self::MIN_ALIGNMENT
-	}
-}
-impl VocabElement for u8 {
-	const MIN_ALIGNMENT: usize = 8;
-	const TYPE: DescriptorType = DescriptorType::Uint8;
-	fn prefer_alignment(ncols: NonZeroUsize) -> usize {
-		let ncols = ncols.get();
-		// Prefer u128 alignment
-		#[cfg(target_arch="x86")]
-		if ncols.is_multiple_of(64) && std::arch::is_x86_feature_detected!("avx512f") {
-			return align_of::<core::arch::x86::__m512i>();
-		}
-		#[cfg(target_arch="x86")]
-		if ncols.is_multiple_of(32) && std::arch::is_x86_feature_detected!("avx") {
-			return align_of::<core::arch::x86::__m256i>();
-		}
-		#[cfg(target_arch="x86")]
-		if ncols.is_multiple_of(32) && std::arch::is_x86_feature_detected!("sse") {
-			return align_of::<core::arch::x86::__m128i>();
-		}
-
-		#[cfg(target_arch="aarch64")]
-		if ncols.is_multiple_of(16) && std::arch::is_aarch64_feature_detected!("neon") {
-			// NEON 
-			return align_of::<core::arch::aarch64::uint8x16_t>();
-		}
-
-		// Try using u128
-		// TODO does this have any performance benefit?
-		if ncols.is_multiple_of(16) {
-			return align_of::<u128>();
-		} else if ncols.is_multiple_of(8) {
-			return align_of::<u64>();
-		} else {
-			align_of::<u8>()
-		}
-	}
-}
-impl VocabElement for f32 {
-	const MIN_ALIGNMENT: usize = 32;
-	const TYPE: DescriptorType = DescriptorType::Float32;
-
-	fn prefer_alignment(ncols: NonZeroUsize) -> usize {
-		let ncols = ncols.get();
-		// Prefer u128 alignment
-		#[cfg(target_arch="x86")]
-		if ncols.is_multiple_of(16) && std::arch::is_x86_feature_detected!("avx512f") {
-			return align_of::<core::arch::x86::__m512>();
-		}
-		#[cfg(target_arch="x86")]
-		if ncols.is_multiple_of(8) && std::arch::is_x86_feature_detected!("avx") {
-			return align_of::<core::arch::x86::__m256>();
-		}
-		#[cfg(target_arch="x86")]
-		if ncols.is_multiple_of(4) && std::arch::is_x86_feature_detected!("sse") {
-			return align_of::<core::arch::x86::__m128>();
-		}
-
-		#[cfg(target_arch="aarch64")]
-		if ncols.is_multiple_of(2) && std::arch::is_aarch64_feature_detected!("neon") {
-			// NEON
-			return if ncols.is_multiple_of(4) {
-				align_of::<core::arch::aarch64::float32x4_t>()
-			} else {
-				align_of::<core::arch::aarch64::float32x2_t>()
-			}
-		}
-
-		align_of::<f32>()
-	}
-}
-
-struct InnerParams<T> {
-	rng: StdRng,
-	k: u32,
-	#[allow(non_snake_case)]
-	L: Option<u32>,
+#[allow(non_snake_case)]
+struct InnerParams<'a, T> {
+	params: &'a VocabularyCreatorParams,
+	rng: Mutex<StdRng>,
 	features: FeatureInfo<T>,
-	max_iters: usize,
-
-	desc_cols: usize,
-	// desc_type: u32,
-	// desc_nbytes: usize,
-}
-
-impl<T> InnerParams<T> {
-	fn child_node(&self, parent: NodeId, i: u32) -> NodeId {
-		parent * self.k + 1 + u32::try_from(i).unwrap()
-	}
-	fn child_range(&self, parent: NodeId, n: u32) -> std::ops::Range<NodeId> {
-		let start = self.child_node(parent, 0);
-		let end = self.child_node(parent, n);
-		start..end
-	}
+	empty_feature: CowArray<'a, T, Ix1>,
 }
 
 struct InnerResult<'a, T> {
-	tree: HashMap<NodeId, Node<'a, T>>,
-	/// for each node, its assigment vector
-	id_assignments: HashMap<NodeId, Vec<u32>>,
+	desc_cols: usize,
+	root_node: Node<'a, T>,
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
@@ -283,6 +66,8 @@ pub enum CreateVocabularyError {
 	EmptyFeature,
 	#[error("Node had too many children")]
 	TooManyChildren,
+	#[error("One of the provided arrays has a different dimension than the others")]
+	ArrayDimMismatch,
 }
 
 impl<'a, T: VocabElement> InnerResult<'a, T> {
@@ -290,64 +75,97 @@ impl<'a, T: VocabElement> InnerResult<'a, T> {
 		//look for leafs and store
 		//now, create the blocks
 
-		let mut n_leaf_nodes = 0;
 		let mut non_leaf_nodes = 0u32;
-		let mut node_to_block = HashMap::new();
+		let mut n_leaf_nodes = 0;
 
-		for (id, node) in self.tree.iter_mut() {
-			if node.is_leaf() {
-				//assing an id if not set
-				if node.feat_idx.is_none() {
-					node.feat_idx = Some(n_leaf_nodes);
+		let temp_array: CowArray<'_, T, Ix1> = Array1::zeros([0]).into();
+
+		// BFS
+		// Simplify tree
+		{
+			let mut queue = VecDeque::new();
+			queue.push_front(&mut self.root_node);
+			while let Some(node) = queue.pop_front() {
+				match node {
+					Node::TerminalBranch(TerminalBranch { children, .. }) => {
+						non_leaf_nodes += 1;
+						n_leaf_nodes += children.len() as u32;
+						// DO NOT recurse leaf nodes
+					},
+					Node::Terminal(..) => {
+						n_leaf_nodes += 1;
+					},
+					Node::Leaf(Leaf { feature, .. }) => {
+						// Rust doesn't make this nice
+						let feature = mem::replace(feature, temp_array.clone());
+						// Convert to terminal leaf
+						*node = Node::Terminal(TerminalLeaf {
+							feature,
+							feat_idx: n_leaf_nodes,
+						});
+						n_leaf_nodes += 1;
+					},
+					Node::Branch(Branch { children, .. }) => {
+						non_leaf_nodes += 1;
+						//TODO: simplify some of these to TerminalBranch's?
+						queue.extend(children);
+					}
 				}
-				n_leaf_nodes += 1
-			} else {
-				node_to_block.insert(*id, non_leaf_nodes);
-				non_leaf_nodes += 1;
 			}
 		}
 		
 		//determine the basic elements
-		
 		let v_params = {
 			let mut v_params = VocabularyParams::empty();
 			let alignment = T::MIN_ALIGNMENT;
-			let desc_size = params.desc_cols * T::TYPE.element_size();
-			v_params.set(T::MIN_ALIGNMENT, params.k, T::TYPE, desc_size, non_leaf_nodes as _, desc_name);
+			let desc_size = self.desc_cols * T::TYPE.element_size();
+			v_params.set(alignment, params.params.k, T::TYPE, desc_size, non_leaf_nodes, desc_name);
 			v_params
 		};
 
-		let mut result = Vocabulary::new(v_params);
+		// TODO: check for overflow?
+		let mut builder = VocabularyBuilder::new(n_leaf_nodes as usize + non_leaf_nodes as usize, self.desc_cols);
 
 		//lets start
-		for (id, node) in self.tree.iter() {
-			if !node.is_leaf() {
-				let block_id = node_to_block.get(id).unwrap();
-				let mut binfo = result.getBlock(*block_id);
-
-				let n = u16::try_from(node.children.len())
-					.map_err(|e| CreateVocabularyError::TooManyChildren)?;
-				binfo.set_n(n);
-				binfo.set_parent(*id);
-				/*let areAllChildrenLeaf = true;
-				for (cidx, cid) in node.children.iter().enumerate() {
-					let child = self.tree.get(cid).unwrap();
-					binfo.set_feature(cidx, child.feature);
-					//go to the end and set info
-					if child.is_leaf() {
-						binfo.block_node_info_mut(cidx).set_leaf(child.feat_idx, child.weight);
-					} else {
-						let child_block = node_to_block.get(&child.id).unwrap();
-						binfo.block_node_info_mut(cidx).set_non_leaf(*child_block);
-						areAllChildrenLeaf = false;
-					}
+		{
+			let mut queue = VecDeque::new();
+			queue.push_front((self.root_node, builder.root()));
+			while let Some((node, dst)) = queue.pop_front() {
+				match node {
+					Node::Branch(Branch { children, .. }) => {
+						let (leaves, branches) = children
+							.into_iter()
+							.partition::<Vec<_>, _>(Node::is_leaf);
+						
+						let leaf_feats = leaves.iter()
+							.map(|leaf| {
+								let Node::Terminal(leaf) = leaf else { unreachable!("Unexpected leaf {leaf:?}") };
+								leaf.feature.view()
+							});
+						
+						let dst_children = dst.fill(branches, |branch| {
+							match branch {
+								Node::Branch(Branch { feature, .. }) => feature.view(),
+								Node::TerminalBranch(TerminalBranch { feature, .. }) => feature.view(),
+								_ => unreachable!("Unexpected leaf"),
+							}
+						}, leaf_feats);
+						if let Some(dst_children) = dst_children {
+							queue.extend(dst_children);
+						}
+					},
+					Node::TerminalBranch(TerminalBranch { children, .. }) => {
+						let leaf_feats = children.iter()
+							.map(|leaf| leaf.feature.view());
+						dst.fill_leaf(leaf_feats);
+					},
+					_ => unreachable!("Invalid node"),
 				}
-				binfo.set_leaf(areAllChildrenLeaf);*/
-				todo!()
 			}
+			assert!(queue.is_empty());
 		}
 
-		Ok(result)
+		Ok(builder.finish(v_params))
 	}
 }
 
@@ -355,17 +173,6 @@ impl<'a, T: VocabElement> InnerResult<'a, T> {
 #[cfg_attr(feature="python", pyo3::pyclass(module="vfbow"))]
 pub struct VocabularyCreator {
 	params: VocabularyCreatorParams,
-	// tree: Mutex<Tree>,
-	// desc_cols: usize,
-	// desc_type: u32,
-	// desc_nbytes: usize,
-	
-	// features: FeatureInfo<T>,
-	// /// for each node, its assigment vector
-	// id_assignments: Mutex<HashMap<NodeId, Vec<u32>>>,
-	// // ThreadSafeMap id_assigments;
-	// // std::vector<std::thread> _Threads;
-	// // std::atomic<bool> threadRunning[100];//do not  know how to create dinamically :S
 }
 
 impl VocabularyCreator {
@@ -379,49 +186,28 @@ impl VocabularyCreator {
 		T::prefer_alignment(ncols)
 	}
 	
-	/// create this from a set of features
+	/// Create vocabulary from a set of features. Can either be called with [u8] or [f32] features
 	/// 
-	/// Voc resulting vocabulary
+	/// # Parameters
 	/// features: vector of features. Each matrix represents the features of an image.
-	pub fn create<T: VocabElement>(&self, features: Vec<ndarray::Array2<T>>, desc_name: &str) -> Result<Vocabulary, CreateVocabularyError> {
-		let feature0 = features.first()
-			.ok_or(CreateVocabularyError::NoFeatures)?;
-		let desc_cols = feature0.ncols();
-		if desc_cols == 0 {
-			return Err(CreateVocabularyError::EmptyFeature);
-		}
-		let desc_type = T::TYPE;
-		// _descNBytes=features[0].cols* features[0].elemSize();
-
-		// if(!(_descType==CV_8UC1|| _descType==CV_32FC1))
-		//     throw std::runtime_error("Descriptors must be binary CV_8UC1 or float  CV_32FC1");
-		// if (_descType==CV_8UC1){
-		//     if (_descNBytes==32)
-		//         dist_func=distance_hamming_32bytes;
-		//     else
-		//         dist_func=distance_hamming_generic;
-		// }
-		// else  dist_func=distance_float_generic;
-
+	/// desc_name: Vocabulary descriptor name
+	pub fn create<T: VocabElement + Send + Sync>(&self, features: Vec<ndarray::Array2<T>>, desc_name: &str) -> Result<Vocabulary, CreateVocabularyError> {
 		//create for later usage
-		let features = FeatureInfo::create(features);
+		let features = FeatureInfo::create(features)?;
 
 		//set all indices for the first level
-		let mut id_assigments = HashMap::with_capacity(features.len());
-		{
-			let root_assign = (0..features.len())
-				.map(|i| i as NodeId)
-				.collect::<Vec<_>>();
-			id_assigments.insert(0, root_assign);
-		}
+		let root_findices = (0..features.len())
+			.map(|i| i as NodeId)
+			.collect::<Vec<_>>();
+
+		let empty_feature = Array1::<T>::zeros([0]);
+		let empty_feature: CowArray<'_, T, Ix1> = empty_feature.view().into();
 
 		let params = InnerParams {
-			k: self.params.k,
-			L: self.params.L,
-			max_iters: self.params.max_iters,
-			rng: StdRng::from_seed([0u8; 32]),
+			params: &self.params,
+			rng: Mutex::new(StdRng::from_seed([0u8; 32])),
 			features,
-			desc_cols,
+			empty_feature,
 		};
 
 		// Fix up nthreads
@@ -441,53 +227,106 @@ impl VocabularyCreator {
 				t => t,
 			}
 		};
+		if self.params.verbose {
+			println!("Using nthreads={nthreads:?}");
+		}
 
-		/*match nthreads {
+		let empty_feature = Array1::<T>::zeros([0]);
+		let empty_feature: CowArray<'_, T, Ix1> = empty_feature.view().into();
+
+		trait JobQueue<'f, 'n, T> {
+			fn push(&mut self, depth: usize, node: &'n mut Node<'f, T>, params: &'f InnerParams<'f, T>);
+		}
+
+		impl<'f, 'n, T> JobQueue<'f, 'n, T> for Vec<(usize, &'n mut Node<'f, T>)> {
+			fn push(&mut self, depth: usize, node: &'n mut Node<'f, T>, _: &InnerParams<'f, T>) {
+				self.push((depth, node));
+			}
+		}
+
+		impl<'f, 'n, T: VocabElement + Send + Sync> JobQueue<'f, 'n, T> for &ScopeFifo<'n> {
+			fn push(&mut self, depth: usize, node: &'n mut Node<'f, T>, params: &'f InnerParams<'f, T>) {
+				self.spawn_fifo(move |mut scope| {
+					process(depth, node, params, &mut scope);
+				});
+			}
+		}
+
+		fn process<'f, 'n, T: VocabElement>(depth: usize, node: &'n mut Node<'f, T>, params: &'f InnerParams<'f, T>, queue: &mut impl JobQueue<'f, 'n, T>) {
+			println!("create_level L={}", depth);
+			let Node::Leaf(Leaf { feature, findices, .. }) = node else { unreachable!() };
+			// Take feature out of leaf
+			let feature = mem::replace(feature, params.empty_feature.clone());
+
+			match params.create_level(&findices) {
+				node::BranchNode::Terminal(children) => {
+					println!("\tTerminal children {}", children.len());
+					*node = Node::TerminalBranch(TerminalBranch {
+						feature,
+						children,
+					});
+				}
+				node::BranchNode::Intermediate(children) => {
+					*node = Node::Branch(Branch {
+						feature,
+						children: children.into_iter()
+							.map(Node::Leaf)	
+							.collect()
+					});
+
+					// Add children to queue
+					if params.params.L.is_none_or(|max_depth| depth < max_depth as usize) {
+						// Add to stack
+						let Node::Branch(Branch { children, .. }) = node else { unreachable!() };
+
+						println!("\tpush {} intermediate children", children.len());
+						// Now add children to stack
+						
+						for child in children.iter_mut() {
+							queue.push(depth+1, child, params);
+						}
+					} else {
+						//TODO: convert to TerminalBranch, save some memory
+					}
+				}
+			}
+		}
+
+
+		let mut root = Node::<T>::Leaf(Leaf {
+			feature: empty_feature.clone(),//TODO: skip this
+			findices: root_findices,
+		});
+
+		let root_node = match nthreads {
 			None => {
 				// Single-threaded
-				let stack = Vec::new();
-				if let Some(iter) = self.createLevel(0, 0) {
-					stack.push((iter, 0));
+				let mut queue = Vec::new();
+				queue.push((0, &mut root));
+				
+				while let Some((depth, node)) = queue.pop() {
+					process(depth, node, &params, &mut queue);
 				}
+
+				root
 			},
 			Some(nthreads) => {
+				// Multi-threaded
 				let pool = rayon::ThreadPoolBuilder::new()
 					.num_threads(nthreads.get())
 					.build()
 					.unwrap();
 
-				if let Some(iter) = self.createLevel(0, 0) {
-					pool.scope(|s| {
-						s.spawn(body);
-					})
-				}
-				//now, add threads
-	
+				pool.scope_fifo(|mut scope| {
+					process(0, &mut root, &params, &mut scope);
+				});
+				root
 			}
-		}*/
-		todo!()
-			// createLevel(0,0);
-
-			// for(auto &t:threadRunning)t=false;
-			// for(size_t i=0;i<_params.nthreads;i++)
-			//     _Threads.push_back(std::thread(&VocabularyCreator::thread_consumer,this,i));
-			// let mut ntimes=0;
-			// while(ntimes < 10) {
-			//     ntimes += 1;
-			//     for(auto &t:threadRunning) if (t){ ntimes=0;break;}
-			//     std::this_thread::sleep_for(std::chrono::microseconds(600));
-			// }
-
-			// //add exit info
-			// for(size_t i=0;i<_Threads.size();i++) ParentDepth_ProcesQueue.push(std::make_pair(-1,-1));
-			// for(std::thread &th:_Threads) th.join();
-
-	//    std::cout<<TheTree.size()<<std::endl;
-	//    for(auto &n:TheTree.getNodes())
-	//        std::cout<<n.first<<" ";std::cout<<std::endl;
+		};
 
 		//now, transform the tree into a vocabulary
-		// convertIntoVoc(Voc,desc_name);
+		let result = InnerResult { root_node, desc_cols: params.features.feature_len() };
+		result.into_vocabulary(&params, desc_name)
 	}
 	// void create(fbow::Vocabulary &Voc, const std::vector<cv::Mat> &features, const std::string &desc_name, Params params);
 	// void create(fbow::Vocabulary &Voc, const cv::Mat &features, const std::string &desc_name, Params params);

@@ -1,28 +1,13 @@
-use core::range::Range;
-use std::{borrow::Cow, collections::HashMap, mem};
+use std::time::Instant;
 
-use ndarray::{Array1, ArrayView1, CowArray};
-use numpy::Ix1;
+use ndarray::{Array1, CowArray, Ix1};
 use rand::Rng;
 
 use crate::traits::NodeId;
 
-use super::{InnerParams, InnerResult, Node};
-
-trait State<T> {
-    fn with_ida<R>(&mut self, callback: impl FnOnce(HashMap<NodeId, Vec<NodeId>>) -> R) -> R;
-    fn remove_ida(&mut self, id: NodeId);
-    fn get_ida(&mut self, id: NodeId) -> &Vec<NodeId>;
-}
-
-struct CreatorRuntime<'a, T, S: State<T>> {
-    params: &'a InnerParams<T>,
-    state: S,
-}
-
-fn dist_func<T>(a: ArrayView1<'_, T>, b: ArrayView1<'_, T>) -> f32 {
-    todo!()
-}
+use super::specialization::DistFunc;
+use super::InnerParams;
+use super::node::{BranchNode, Leaf, TerminalLeaf};
 
 type FIndex = u32;
 
@@ -45,22 +30,25 @@ fn vhash(v_vec: &[Vec<u32>]) -> u64 {
     seed
 }
 
-impl<T> InnerParams<T> {
+impl<'a, T: DistFunc> InnerParams<'a, T> {
     /// Returns a subset of input
     fn initial_cluster_centers(&self, findices: &[FIndex]) -> Vec<FIndex> {
-        debug_assert!(findices.len() >= self.k as _);
+        debug_assert!(findices.len() >= self.params.k as _);
         
-		let mut centers = Vec::with_capacity(self.k as _);
+		let mut centers = Vec::with_capacity(self.params.k as _);
 		//set distances to zero
         let mut distances = vec![0f32; findices.len()];
 
 		// 1.Choose one center uniformly at random from among the data points.
-        let rand_idx = self.rng.gen_range(0..findices.len());
+        let rand_idx = {
+            let mut rng = self.rng.lock().unwrap();
+            rng.gen_range(0..findices.len())
+        };
 		let mut last_feature = findices[rand_idx];
 		// create first cluster
 		centers.push(last_feature);
 
-		while centers.len() < self.k as _ {
+		while centers.len() < self.params.k as _ {
 			// add the distance to the new cluster and select the farthest one
 			let last_center_feat = self.features.get(last_feature as _);
 
@@ -68,7 +56,7 @@ impl<T> InnerParams<T> {
                 .copied()
                 .enumerate()
                 .map(|(idx, f_i)| {
-                    distances[idx] += dist_func(last_center_feat, self.features.get(f_i as _));
+                    distances[idx] += T::dist_func(last_center_feat, self.features.get(f_i as _));
                     (f_i, distances[idx])
                 })
                 .max_by(cmp_f32_pair)
@@ -79,7 +67,7 @@ impl<T> InnerParams<T> {
 		centers
 	}
 
-    fn assign_to_clusters(&self, findices: &[FIndex], center_features: &[CowArray<'_, T, Ix1>], assigments: &mut [Vec<NodeId>]) {
+    fn assign_to_clusters(&self, findices: &[FIndex], center_features: &[CowArray<'_, T, Ix1>], assigments: &mut [Vec<FIndex>]) {
         for a in assigments.iter_mut() {
             a.clear();
         }
@@ -111,7 +99,7 @@ impl<T> InnerParams<T> {
             let feature = self.features.get(*fi as _);
             let center_dist_min = center_features.iter()
                 .enumerate()
-                .map(|(idx, center_feature)| (idx, dist_func(center_feature.view(), feature)))
+                .map(|(idx, center_feature)| (idx, T::dist_func(center_feature.view(), feature)))
                 .min_by(cmp_f32_pair)
                 .unwrap()
                 .0;
@@ -126,197 +114,96 @@ impl<T> InnerParams<T> {
         //            }
         //        }
     }
-    fn recompute_centers(&self, assigments: &[Vec<NodeId>], omp: bool) -> Vec<Array1<T>> {
-		let mut centers = Vec::with_capacity(assigments.len());
-		/*if omp {
-			centers.resize(assigments.size());
-		#pragma omp parallel for
-			for(int i=0;i<int(assigments.size());i++){
-				if (_descType==CV_8UC1)   centers[i]=meanValue_binary(*assigments[i]);
-				else centers[i]=meanValue_float(*assigments[i]) ;
-			}
-		}
-		else{*/
-        for ass in assigments {
-            // if (_descType==CV_8UC1)   centers.push_back(meanValue_binary(*ass) );
-            // else centers.push_back(meanValue_float(*ass) );
-            todo!()
-        }
-		// }
-		centers
-	}
-}
-
-impl<'a, T, S: State<T>> CreatorRuntime<'a, T, S> {
-    fn create_level2(&self, parent: &mut Node<'a, T>) {
-        let findices = self.state.get_ida(parent);
-        //trivial case, less features or equal than k (these are leaves)
-        let (center_features, num_x) = if findices.len() <= self.params.k as _ {
-            let center_features = findices
-                .iter().copied()
-                .map(|fi| self.params.features.get(fi as _).into())
-                .collect::<Vec<_>>();
-            (center_features, false)
-        } else {
-            //create the assigment vectors and reserve memory
-            let children = self.params.child_range(parent, self.params.k);
-            let capacity = findices.len() / (self.params.k as usize);
-            let mut assigments = vec![Vec::<NodeId>::with_capacity(capacity); self.params.k as usize];
-            let centers = self.params.initial_cluster_centers(findices);
-            let center_features = centers.iter()
-                .copied()
-                .map(|center| self.params.features.get(center as _).into())
-                .collect::<Vec<_>>();
-
-            //do k means evolution to move means
-            let mut prev_hash = 0;
-            for _ in 0..self.params.max_iters {
-                //do assigment
-                self.params.assign_to_clusters(findices, &center_features, &mut assigments /*,parent==0*/);
-                //recompute centers again
-                center_features = self.params.recompute_centers(assigments, false/*,parent==0*/)
-                    .into_iter()
-                    .map(|v| v.into())
-                    .collect::<Vec<_>>();
-                let cur_hash = vhash(&assigments);
-                if cur_hash == prev_hash {
-                    break;
-                }
-                prev_hash = cur_hash;
-            };
-
-            self.params.assign_to_clusters(&findices, &center_features, &mut assigments /*,parent==0*/);
-
-            (center_features, true)
-        };
-
-        //add to the tree the set of nodes
-        let has_feat_idx = findices.len() == center_features.len();
-        
-        let mut new_nodes = center_features
-            .into_iter().enumerate()
-            .map(|(idx, feature)| {
-                let id = self.params.child_node(parent, idx as _);
-                let feat_idx = if has_feat_idx {
-                    Some(findices[idx])
-                } else {
-                    None
-                };
-                Node::new(id, parent.id, feature, feat_idx)
-            })
-            .collect::<Vec<_>>();
-        let num_new_nodes = new_nodes.len();
-        {
-            let tree = self.tree.lock().unwrap();
-            tree.add(new_nodes, parent);
-        }
-        {
-            //we can now remove the assigments of the parent
-            let mut id_assignments = self.id_assignments.lock().unwrap();
-            id_assignments.remove(&parent).unwrap();
-            // println!("Parent {} done", parent);
-        }
-
-        //should we go deeper?
-        if (!assigments_ref.is_empty()) && self.params.L.is_none_or(|L| current_level < L as _ - 1) {
-            assert_eq!(assigments_ref.len(), new_nodes.len());
-            //go deeper again or add to queue
-
-            let iter = (0..num_new_nodes)
-                .map(|i| self.params.child_node(parent, i));
-            Some(iter)
-        } else {
-            None
-        }
+    fn recompute_centers(&self, assignments: &[Vec<FIndex>]) -> Vec<Array1<T>> {
+        assignments.iter()
+            .map(|assignment| T::mean_values(&self.features, &assignment))
+            .collect()
     }
 
-    //ready to be threaded using producer consumer
-    fn create_level(&self, parent: NodeId, current_level: usize) -> Option<Range<NodeId>> {
-        let mut center_features: Vec<CowArray<'_, T, Ix1>> = Vec::new();
-
-        let findices = self.state.get_ida(parent);
+    pub(super) fn create_level(&self, feature_idxs: &[FIndex]) -> BranchNode<'_, T> {
         //trivial case, less features or equal than k (these are leaves)
-        if findices.len() <= self.params.k as _ {
-            for fi in findices {
-                center_features.push(self.params.features.get(*fi as _).into());
-            }
-        } else {
-            //create the assigment vectors and reserve memory
-            let children = self.params.child_range(parent, self.params.k);
-            let capacity = findices.len() / (self.params.k as usize);
-            let mut assigments_ref = vec![Vec::with_capacity(capacity); self.params.k as usize];
-            // for i in 0..self.params.k {
-            //     let key = parent*self.params.k+1+i;
-            //     self.id_assignments.insert(key, Vec::with_capacity(capacity));
-            //     assigments_ref.push(self.id_assigments[key]);
-            // }
-
-            //initialize clusters
-            let centers = self.params.initial_cluster_centers(findices);
-            center_features = centers.iter()
+        if feature_idxs.len() <= self.params.k as _ {
+            if self.params.verbose { println!("\tTrivial case"); }
+            
+            let center_features = feature_idxs
+                .iter()
                 .copied()
-                .map(|center| self.params.features.get(center as _).into())
-                .collect::<Vec<_>>();
+                .map(|fi| (fi, self.features.get(fi as _).into()));
 
-            //do k means evolution to move means
+            assert_eq!(center_features.len(), feature_idxs.len());
+            
+            let children = center_features
+                .map(|(feat_idx, feature)| {
+                    TerminalLeaf {
+                        feature,
+                        feat_idx,
+                    }
+                });
+            BranchNode::Terminal(children.collect())
+        } else {
+            // Create the assigment vectors and reserve memory
+            let capacity = feature_idxs.len() / (self.params.k as usize);
+            let mut assignments = vec![Vec::<NodeId>::with_capacity(capacity); self.params.k as usize];
+            let centers = self.initial_cluster_centers(feature_idxs);
+            assert_eq!(centers.len(), self.params.k as _);
+
+            let mut center_features = centers.iter()
+                .copied()
+                .map(|center| self.features.get(center as _).into())
+                .collect::<Vec<_>>();
+            assert_eq!(center_features.len(), self.params.k as _);
+
+            // Do k-means evolution to move means
             let mut prev_hash = 0;
-            for _ in 0..self.params.max_iters {
-                //do assigment
-                self.params.assign_to_clusters(findices, &center_features, assigments_ref.as_mut_slice() /*,parent==0*/);
-                //recompute centers again
-                center_features = self.params.recompute_centers(assigments_ref, false/*,parent==0*/)
+            for iter in 0..self.params.max_iters {
+                // Assigment
+                let t0 = Instant::now();
+                self.assign_to_clusters(feature_idxs, &center_features, &mut assignments /*,parent==0*/);
+
+                // Recompute centers again
+                let t1 = Instant::now();
+                center_features = self.recompute_centers(&assignments, /*,parent==0*/)
                     .into_iter()
                     .map(|v| v.into())
                     .collect::<Vec<_>>();
-                let cur_hash = vhash(&assigments_ref);
+
+                // Check if anything's changed
+                let t2 = Instant::now();
+                let cur_hash = vhash(&assignments);
+                let t3 = Instant::now();
+                
+                if self.params.verbose {
+                    let d_assign_clusters = t1 - t0;
+                    let d_recompute_centers = t2 - t1;
+                    let d_vhash = t3 - t2;
+                    let d_total = t3 - t0;
+                    println!(
+                        "\tIteration {iter} ({:.03}s): assign_clusters {:4.1}ms ({:5.1}%) / recompute_centers {:4.1}ms ({:5.1}%) / vhash {:4.1}ms ({:5.1}%)",
+                        d_total.as_secs_f32(),
+                        d_assign_clusters.as_millis_f32(),
+                        100. * d_assign_clusters.as_secs_f32() / d_total.as_secs_f32(),
+                        d_recompute_centers.as_millis_f32(),
+                        100. * d_recompute_centers.as_secs_f32() / d_total.as_secs_f32(),
+                        d_vhash.as_millis_f32(),
+                        100. * d_vhash.as_secs_f32() / d_total.as_secs_f32(),
+                    );
+                }
                 if cur_hash == prev_hash {
                     break;
                 }
                 prev_hash = cur_hash;
             };
 
-            self.params.assign_to_clusters(&findices, center_features, &mut assigments_ref);
-            assignToClusters(findices,center_features,assigments_ref /*,parent==0*/);
-            // if (_params.verbose) std::cerr<<"Cluster created :"<<parent<<" "<<current_level<<endl;
-        }
+            self.assign_to_clusters(&feature_idxs, &center_features, &mut assignments /*,parent==0*/);
 
-        //add to the tree the set of nodes
-        let has_feat_idx = findices.len() == center_features.len();
-        
-        let mut new_nodes = center_features
-            .into_iter().enumerate()
-            .map(|(idx, feature)| {
-                let id = self.params.child_node(parent, idx as _);
-                let feat_idx = if has_feat_idx {
-                    Some(findices[idx])
-                } else {
-                    None
-                };
-                Node::new(id, parent, feature, feat_idx)
-            })
-            .collect::<Vec<_>>();
-        let num_new_nodes = new_nodes.len();
-        {
-            let tree = self.tree.lock().unwrap();
-            tree.add(new_nodes, parent);
-        }
-        {
-            //we can now remove the assigments of the parent
-            let mut id_assignments = self.id_assignments.lock().unwrap();
-            id_assignments.remove(&parent).unwrap();
-            // println!("Parent {} done", parent);
-        }
+            assert_eq!(center_features.len(), assignments.len());
 
-        //should we go deeper?
-        if (!assigments_ref.is_empty()) && self.params.L.is_none_or(|L| current_level < L as _ - 1) {
-            assert_eq!(assigments_ref.len(), new_nodes.len());
-            //go deeper again or add to queue
-
-            let iter = (0..num_new_nodes)
-                .map(|i| self.params.child_node(parent, i));
-            Some(iter)
-        } else {
-            None
+            let children = center_features.into_iter()
+                .zip(assignments.into_iter())
+                .map(|(feature, findices)| {
+                    Leaf { feature, findices }
+                });
+            BranchNode::Intermediate(children.collect())
         }
     }
 }
