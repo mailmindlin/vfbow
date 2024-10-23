@@ -9,9 +9,9 @@ use backtrace::PanicBacktrace;
 use features_array::PyReadonlyArray2Any;
 use io::{PyRead, PyWrite};
 use numpy::{PyArrayMethods, PyReadonlyArray2};
-use pyo3::{exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError}, prelude::*, pymethods, pymodule, types::{PyBytes, PyModule}, Bound, PyResult, Python};
+use pyo3::{exceptions::{PyRuntimeError, PyValueError}, prelude::*, pymethods, pymodule, types::{PyBytes, PyModule}, Bound, PyResult, Python};
 
-use crate::{features::FeatureType, traits::{Deserialize, Serialize}, vocabulary::{TransformError, Vocabulary}, VocabularyCreator, VocabularyCreatorParams, FBOW, FBOW2};
+use crate::{features::FeatureType, traits::{Deserialize, Serialize}, vocabulary::{TransformError, Vocabulary}, vocabulary_creator::VocabElement, CreateVocabularyError, VocabularyCreator, VocabularyCreatorParams, FBOW, FBOW2};
 
 #[pymethods]
 impl VocabularyCreatorParams {
@@ -37,27 +37,27 @@ impl VocabularyCreator {
 	
 	#[pyo3(name="create")]
 	fn py_create<'py>(&self, py: Python<'py>, features: PyReadonlyArray2Any<'py>, desc_name: &str) -> PyResult<Vocabulary> {
-		println!("{features:?} / {desc_name}");
-		match features {
-			PyReadonlyArray2Any::Empty => Err(PyErr::new::<PyValueError, _>("No features provided")),
-			PyReadonlyArray2Any::U8(vec) => {
-				//TODO: prevent array copies
-				let mut features = Vec::new();
-				for arr in vec {
-					features.push(arr.to_owned_array());
-				}
-
-				// Set panic hook
-				let r = PanicBacktrace::catch_backtrace(py, || self.create::<u8>(features, desc_name))?;
-				match r {
-					Ok(v) => Ok(v),
-					// Normal result
-					Err(e) => Err(PyErr::new::<PyRuntimeError, _>(format!("Error creating vocabulary: {e}"))),
-				}
-			},
-			PyReadonlyArray2Any::F32(..) => {
-				Err(PyErr::new::<PyNotImplementedError,_>("TODO f32"))
+		fn create_generic<'py, T: numpy::Element + VocabElement + Sync + RefUnwindSafe>(vc: &VocabularyCreator, py: Python<'py>, vec: Vec<PyReadonlyArray2<'py, T>>, desc_name: &str) -> PyResult<Result<Vocabulary, CreateVocabularyError>> {
+			//TODO: prevent array copies
+			let mut features = Vec::new();
+			for arr in vec {
+				features.push(arr.to_owned_array());
 			}
+
+			// Set panic hook
+			PanicBacktrace::catch_backtrace(py, || vc.create::<T>(features, desc_name))
+		}
+
+		let result = match features {
+			PyReadonlyArray2Any::Empty => Err(PyErr::new::<PyValueError, _>("No features provided")),
+			PyReadonlyArray2Any::U8(vec) => create_generic(self, py, vec, desc_name),
+			PyReadonlyArray2Any::F32(vec) => create_generic(self, py, vec, desc_name),
+		}?;
+
+		match result {
+			Ok(v) => Ok(v),
+			// Normal result
+			Err(e) => Err(PyErr::new::<PyRuntimeError, _>(format!("Error creating vocabulary: {e}"))),
 		}
 	}
 }
