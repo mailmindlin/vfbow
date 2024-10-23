@@ -1,5 +1,10 @@
 //base class for computing distances between feature vectors
 
+trait Distance {
+    type Item;
+    const ALIGNMENT: usize;
+}
+
 trait Lx<Register, Distance, const Alignment: usize> {
     fn setParams(&mut self, desc_size: usize, block_desc_size_bytes_wp: usize);
     fn computeDist(fptr: &[Register]) -> Distance;

@@ -1,91 +1,52 @@
-mod distance;
-mod distance_l1;
+mod builder;
+mod serde;
 
-use std::{ffi::CStr, io::{self, ErrorKind, Read, Write}, str::FromStr};
+use std::{ffi::CStr, fmt::Debug, io::{self, ErrorKind, Read, Write}, str::FromStr, time::Instant};
 
 use arrayvec::ArrayString;
 
-use crate::{fbow::{FBOW, FBOW2}, traits::{DescriptorType, Deserialize, NodeId, SelfHash, Serialize}};
+use crate::{fbow::{FBOW, FBOW2}, features::{DistanceQuery, FeatureType, FeaturesGeneric}, traits::{DescriptorType, Deserialize, Serialize}};
+pub(crate) use builder::VocabularyBuilder;
 
-/// a block represent all the child nodes of a parent, with its features and also information about where the child of these are in the data structure
-/// 
-/// a block structure is as follow: N|isLeaf|BlockParentId|p|F0...FN|C0W0 ... CNWN..
-/// - N :16 bits : number of nodes in this block. Must be <=branching factor k. If N<k, then the block has empty spaces since block size is fixed
-/// - isLeaf:16 bit inicating if all nodes in this block are leaf or not
-/// - BlockParentId:31: id of the parent
-/// - p :possible offset so that Fi is aligned
-/// - Fi feature of the node i. it is aligned and padding added to the end so that F(i+1) is also aligned
-/// - CiWi are the so called block_node_info (see structure up)
-/// - Ci : either if the node is leaf (msb is set to 1) or not. If not leaf, the remaining 31 bits is the block where its children are. Else, it is the index of the feature that it represent
-/// - Wi: float value empkoyed to know the weight of a leaf node (employed in cases of bagofwords)
-pub(crate) struct Block<'a> {
-	blockstart: &'a u8,
-	// char *_blockstart;
-	// uint64_t _desc_size_bytes=0;//size of the descriptor(without padding)
-	// uint64_t _desc_size_bytes_wp=0;//size of the descriptor(includding padding)
-	// uint64_t _feature_off_start=0;
-	// uint64_t _child_off_start=0;//into the block,where the children offset part starts
+pub(crate) struct Node {
+	/// Node ID
+	base: u32,
+	/// Number of children (branches + leaves)
+	n: u32,
+	/// Child branches
+	children: Option<Box<[Node]>>,
 }
 
-impl<'a> Block<'a> {
-	// Block(char * bsptr,uint64_t ds,uint64_t ds_wp,uint64_t fo,uint64_t co):_blockstart(bsptr),_desc_size_bytes(ds),_desc_size_bytes_wp(ds_wp),_feature_off_start(fo),_child_off_start(co){}
-	// Block(uint64_t ds,uint64_t ds_wp,uint64_t fo,uint64_t co):_desc_size_bytes(ds),_desc_size_bytes_wp(ds_wp),_feature_off_start(fo),_child_off_start(co){}
-
-	fn get_n(&self) -> u16 {
-		todo!("*((uint16_t*)(_blockstart))")
-	}
-	pub(crate) fn set_n(&self, n: u16) {
-		todo!("*((uint16_t*)(_blockstart))=n;")
+impl Node {
+	const fn empty() -> Self {
+		Self {
+			base: 0,
+			n: 0,
+			children: None,
+		}
 	}
 
-	fn is_leaf(&self) -> bool {
-		todo!("*((uint16_t*)(_blockstart)+1)")
+	fn num_children(&self) -> usize {
+		match &self.children {
+			None => 0,
+			Some(children) => children.len(),
+		}
 	}
-	pub(super) fn set_leaf(&mut self, leaf: bool) {
-		todo!("*((uint16_t*)(_blockstart)+1)=1;")
-	}
-
-	pub(super) fn set_parent(&mut self, parent_id: NodeId) {
-		todo!("*(((uint32_t*)(_blockstart))+1)=pid;")
-	}
-	fn get_parent(&self) -> NodeId {
-		todo!("*(((uint32_t*)(_blockstart))+1);")
-	}
-
-	pub(crate) fn block_node_info(&self, i: usize) -> &BlockNodeInfo {
-		todo!()
-	}
-
-	pub(crate) fn block_node_info_mut(&mut self, i: usize) -> &mut BlockNodeInfo {
-		todo!()
-	}
-
-	// inline  block_node_info * getBlockNodeInfo(int i){  return (block_node_info *)(_blockstart+_child_off_start+i*sizeof(block_node_info)); }
-	// inline  void setFeature(int i,const cv::Mat &feature){memcpy( _blockstart+_feature_off_start+i*_desc_size_bytes_wp,feature.ptr<char>(0),feature.elemSize1()*feature.cols); }
-	// inline  void getFeature(int i,cv::Mat  feature){    memcpy( feature.ptr<char>(0), _blockstart+_feature_off_start+i*_desc_size_bytes,_desc_size_bytes ); }
-	// template<typename T> inline  T*getFeature(int i){return (T*) (_blockstart+_feature_off_start+i*_desc_size_bytes_wp);}
 }
 
+#[derive(Debug)]
 pub(crate) struct VocabularyParams {
 	//descriptor name. May be empty
 	desc_name: ArrayString<49>, // 49 bytes + null terminator
-	/// Memory alignment
-	alignment: u32,
+	/// Memory alignment of each feature
+	alignment: usize,
 	/// Total number of blocks
 	nblocks: u32,
-	
-	/// Size of the descriptor(includes padding)
-	desc_size_bytes_wp: u64,
-	/// Size of a block   (includes padding)
-	block_size_bytes_wp: u64,
-	/// Within a block, where the features start
-	feature_off_start: u64,
-	/// Within a block,where the children offset part starts
-	child_off_start: u64,
 	total_size: u64,
-	// int32_t _desc_type=0,_desc_size=0;//original descriptor types and sizes (without padding)
-	desc_type: u32,
-	desc_size: u32,
+	/// Descriptor type
+	desc_type: DescriptorType,
+	/// Descriptor size
+	desc_size: usize,
 	/// Number of children per node
 	m_k: u32,
 }
@@ -98,28 +59,22 @@ impl VocabularyParams {
 			desc_name: ArrayString::new_const(),
 			alignment: 0,
 			nblocks: 0,
-			desc_size_bytes_wp: 0,
-			block_size_bytes_wp: 0,
-			feature_off_start: 0,
-			child_off_start: 0,
 			total_size: 0,
-			desc_type: 0,
+			desc_type: DescriptorType::Uint8,
 			desc_size: 0,
 			m_k: 0,
 		}
 	}
 
-	pub(crate) fn set(&mut self, aligment: usize, k: u32, desc_type: DescriptorType, desc_size: usize, nblocks: usize, desc_name: &str) {
+	pub(crate) fn set(&mut self, aligment: usize, k: u32, desc_type: DescriptorType, desc_size: usize, nblocks: u32, desc_name: &str) {
 		self.set_name(desc_name);
-	
-		todo!()
-		/*self.params.alignment = aligment;
-		self.params.m_k = k;
-		self.params.desc_type=desc_type;
-		self.params.desc_size=desc_size;
-		self.params.nblocks = nblocks;
-	
-	
+
+		self.alignment = aligment;
+		self.m_k = k;
+		self.desc_type = desc_type;
+		self.nblocks = nblocks;
+		self.desc_size = desc_size;
+		/*
 		let desc_size_bytes_al: u64 = 0;
 		let block_size_bytes_al: u64 = 0;
 	
@@ -177,10 +132,10 @@ impl Serialize for VocabularyParams {
 		}
 		dst.write_all(&self.alignment.to_le_bytes())?;
 		dst.write_all(&self.nblocks.to_le_bytes())?;
-		dst.write_all(&self.desc_size_bytes_wp.to_le_bytes())?;
-		dst.write_all(&self.block_size_bytes_wp.to_le_bytes())?;
-		dst.write_all(&self.feature_off_start.to_le_bytes())?;
-		dst.write_all(&self.child_off_start.to_le_bytes())?;
+		// dst.write_all(&self.desc_size_bytes_wp.to_le_bytes())?;
+		// dst.write_all(&self.block_size_bytes_wp.to_le_bytes())?;
+		// dst.write_all(&self.feature_off_start.to_le_bytes())?;
+		// dst.write_all(&self.child_off_start.to_le_bytes())?;
 		dst.write_all(&self.total_size.to_le_bytes())?;
 		dst.write_all(&self.m_k.to_le_bytes())
 	}
@@ -209,76 +164,53 @@ impl Deserialize for VocabularyParams {
 		}
 		let alignment = read_u32(&mut src)?;
 		let nblocks = read_u32(&mut src)?;
-		let desc_size_bytes_wp = read_u64(&mut src)?;
-		let block_size_bytes_wp = read_u64(&mut src)?;
-		let feature_off_start = read_u64(&mut src)?;
-		let child_off_start = read_u64(&mut src)?;
+		// let desc_size_bytes_wp = read_u64(&mut src)?;
+		// let block_size_bytes_wp = read_u64(&mut src)?;
+		// let feature_off_start = read_u64(&mut src)?;
+		// let child_off_start = read_u64(&mut src)?;
 		let total_size = read_u64(&mut src)?;
-		let desc_type = read_u32(&mut src)?;
+		let desc_type = match read_u32(&mut src)? {
+			0 => DescriptorType::Uint8,
+			5 => DescriptorType::Float32,
+			dt => return Err(io::Error::new(ErrorKind::InvalidData, format!("Unexpected desc_type {dt}"))),
+		};
 		let desc_size = read_u32(&mut src)?;
 		let m_k = read_u32(&mut src)?;
 
 		Ok(Self {
 			desc_name,
-			alignment,
+			alignment: alignment as _,
 			nblocks,
-			desc_size_bytes_wp,
-			block_size_bytes_wp,
-			feature_off_start,
-			child_off_start,
+			// desc_size_bytes_wp,
+			// block_size_bytes_wp,
+			// feature_off_start,
+			// child_off_start,
 			total_size,
 			desc_type,
-			desc_size,
+			desc_size: desc_size as _,
 			m_k,
 		})
 	}
 }
 
-/// Structure represeting a information about node in a block
-struct BlockNodeInfo {
-	/// if id, msb is 1.
-	id_or_childblock: u32,
-	weight: f32,
-}
-
-impl BlockNodeInfo {
-	fn is_leaf(&self) -> bool {
-		self.id_or_childblock & 0x80000000 != 0
-	}
-
-	// //if not leaf, returns the block where the children are
-	// //if leaf, returns the index of the feature it represents. In case of bagofwords it must be a invalid value
-	// inline uint32_t getId()const{return ( id_or_childblock&0x7FFFFFFF);}
-
-	// //sets as leaf, and sets the index of the feature it represents and its weight
-	pub(crate) fn set_leaf(&mut self, id: NodeId, weight: f32) {
-	//     assert(!(id & 0x80000000));//check msb is zero
-	//     id_or_childblock=id;
-	//     id_or_childblock|=0x80000000;//set the msb to one to distinguish from non leaf
-	//     //now,set the weight too
-	//     weight=Weight;
-		todo!()
-	}
-	// //sets as non leaf and sets the id of the block where the chilren are
-	pub(crate) fn set_non_leaf(&mut self, id: NodeId){
-		todo!()
-	//     //ensure the msb is 0
-	//     assert( !(id & 0x80000000));//32 bits 100000000...0.check msb is not set
-	//     id_or_childblock=id;
-	}
-}
-
 /// Main class to represent a vocabulary of visual words
-#[cfg_attr(feature="python", pyo3::pyclass)]
+#[cfg_attr(feature="python", pyo3::pyclass(module="vfbow", frozen))]
 pub struct Vocabulary {
 	params: VocabularyParams,
-	data: Vec<u8>,
-	// /// information about the cpu so that mmx, sse, or avx extensions can be employed
-	// cpu_info: CpuFeatures,
+	/// Root node
+	root: Node,
+	/// Features data
+	features: FeaturesGeneric,
 }
 
-fn ilog2(x: u32) -> u32 {
-	u32::BITS - x.next_power_of_two().leading_zeros()
+impl Debug for Vocabulary {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("Vocabulary")
+			.field("params", &self.params)
+			// .field("root", &self.root)
+			.field("features", &self.features)
+			.finish()
+	}
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
@@ -287,15 +219,65 @@ pub enum TransformError {
 	NoInputData,
 	#[error("Transform features are of different size than the vocabulary ones")]
 	SizeMismatch,
+	#[error("Transform features are of different type than the vocabulary ones")]
+	DtypeMismatch,
 }
 
 impl Vocabulary {
-	pub(crate) fn new(params: VocabularyParams) -> Self {
-		todo!()
+	pub fn print_tree(&self) {
+		let mut stack = vec![vec![&self.root]];
+		while let Some((current, s_prev)) = stack.split_last_mut() {
+			let Some(top) = current.pop() else {
+				// Pop empty level
+				stack.pop();
+				continue;
+			};
+			// Ignore first level
+			for level in s_prev.iter().skip(1) {
+				if level.is_empty() {
+					print!(" ");
+				} else {
+					print!("│");
+				}
+			}
+
+			if !s_prev.is_empty() {
+				// Pick last line-drawing character
+				if current.is_empty() {
+					// Last in level
+					print!("┗━ ");
+				} else if top.children.is_none() {
+					// Leaf
+					print!("┣━ ");
+				} else {
+					// Branch
+					print!("┡━ ");
+				}
+			}
+
+			let num_children = top.num_children();
+			println!("id {} ({} + {})", top.base, num_children, top.n as usize - num_children);
+			if let Some(children) = top.children.as_ref() {
+				let children = children.iter()
+					.rev()
+					.collect::<Vec<_>>();
+				stack.push(children);
+			}
+		}
 	}
+
 	///returns the descriptor name
 	pub fn desc_name(&self) -> &str {
 		&self.params.desc_name
+	}
+
+	/// Number of features
+	pub fn num_features(&self) -> usize {
+		self.features.len()
+	}
+
+	pub(crate) fn features(&self) -> &FeaturesGeneric {
+		&self.features
 	}
 
 	// /// Returns the descriptor type (CV_8UC1, CV_32FC1  )
@@ -312,179 +294,70 @@ impl Vocabulary {
 		self.params.m_k
 	}
 
-	/// indicates whether this object is valid
-	pub fn is_valid(&self) -> bool {
-		!self.data.is_empty()
-	}
 	/// total number of blocks
 	pub fn size(&self) -> u32 {
 		self.params.nblocks
 	}
 
-	/// removes all data
-	pub fn clear(&mut self) {
-		self.data.clear();
-		self.params = VocabularyParams::empty();
-	}
-
-	//returns a block structure pointing at block b
-	pub(crate) fn getBlock(&self, b: u32) -> Block {
-		// assert(_data.get() != nullptr);
-		assert!(self.is_valid());
-		assert!(b < self.params.nblocks);
-		todo!()
-		// Block {
-			
-		// }
-		// return Block(_data.get() + b * _params._block_size_bytes_wp, _params._desc_size, _params._desc_size_bytes_wp, _params._feature_off_start, _params._child_off_start);
-	}
-
-	pub fn transform_l1(&self, features: ndarray::ArrayView2<u8>, level: usize, result: &mut FBOW, result2: &mut FBOW2) -> Result<(), TransformError> {
+	#[allow(private_bounds)]
+	pub fn transform<T: FeatureType>(&self, features: ndarray::ArrayView2<T>, level: Option<usize>) -> Result<(FBOW, FBOW2), TransformError> {
 		if features.nrows() == 0 {
 			return Err(TransformError::NoInputData);
 		}
-		// if (features.type()!=_params._desc_type) throw std::runtime_error("Vocabulary::transform features are of different type than vocabulary");
 		if features.ncols() != self.params.desc_size as _ {
 			return Err(TransformError::SizeMismatch);
 		}
-		//decide the version to employ according to the type of features, aligment and cpu capabilities
-		//orb
-		
-		todo!()
-		/*if cfg!(target_pointer_width = "64") {
-			if self.params.desc_size == 32 {
-				_transform2<L1_32bytes>(features,level,result,result2);
-			} else if self.params.desc_size == 61 && self.params.alignment.is_multiple_of(8) {
-				// Full AKAZE
-				_transform2<L1_61bytes>(features,level,result,result2);
-			} else {
-				// Generic
-				_transform2<L1_x64>(features,level,result,result2);
-			}
-		} else {
-			_transform2<L1_x32>(features,level,result,result2)
-		}*/
-	}
 
-	pub fn transform_l2(&self, features: ndarray::ArrayView2<f32>, level: u32, result: &mut FBOW, result2: &mut FBOW2) {
-		/*if is_x86_feature_detected!("avx") && self.params.alignment.is_multiple_of(32) {
-			// AVX version
-			if self.params.desc_size == 256 {
-				// Specific for SURF 256 bytes
-				self._transform2(features, level, result, result2, distance::l2_avx_array::<8>)
-			} else {
-				self._transform2(features, level, result, result2, distance::l2_avx_generic)
-			}
-		} else if is_x86_feature_detected!("sse") && self.params.alignment.is_multiple_of(16) {
-			if self.params.desc_size == 256 {
-				// Specific for SURF 256 bytes
-				self._transform2_arr(features, level, result, result2, distance::l2_avx_array::<8>)
-			} else {
-				// Any other
-				self._transform2(features, level, result, result2, distance::l2_avx_generic)
-			}
-		}
+		let mut r = FBOW::with_capacity(features.nrows());
+		let mut r2 = FBOW2::with_capacity(features.nrows());
 
-		// Generic version
-		self._transform2(features, level, result, result2, distance::l2_generic)*/
-		todo!()
-	}
+		let start = Instant::now();
 
-	fn _transform2_arr<T, D, F, const N: usize>(&self, features: ndarray::ArrayView2<T>, storeLevel: u32, r1: &mut FBOW, r2: &mut FBOW2, transform: impl Fn(&[F; N],&[F; N]) -> D) {
-		todo!()
-	}
+		//TODO: maybe let features convert it?
 
-	fn _transform2<T, D, F>(&self, features: ndarray::ArrayView2<T>, storeLevel: u32, r1: &mut FBOW, r2: &mut FBOW2, transform: impl Fn(&[F],&[F]) -> D) {
-		// comp.setParams(_params._desc_size,_params._desc_size_bytes_wp);
-		// using DType=typename Computer::DType;//distance type
-		// using TData=typename Computer::TData;//data type
-		let required_alignment = align_of::<F>();
-		assert_eq!(self.params.alignment as usize % required_alignment, 0);
-		//TODO: assert capacity?
-		r1.clear();
-		r2.clear();
-		// Minimum distance found
-		// let best_idx = None;
-		// std::pair<DType,uint32_t> best_dist_idx(std::numeric_limits<uint32_t>::max(),0);//minimum distance found
-		// block_node_info *bn_info;
-		let nbits = ilog2(self.params.m_k);
-
-		for cur_feature in 0..features.nrows() {
-			/*comp.startwithfeature(features.ptr<TData>(cur_feature));
-			//ensure feature is in a
-			let c_block = self.getBlock(0);
-			let level = 0;//current level of recursion
-			let curNode = 0;//id of the current node of the tree
+		for (idx, row) in features.rows().into_iter().enumerate() {
+			// println!("Transform row {idx}");
+			let q = self.features.query(row);
+			let mut block = &self.root;
+			let mut cur_level = 0;//current level of recursion
 			//copy to another structure and add padding with zeros
-			do{
+			loop {
+				// Find node with minimum distance
 				//given the current block, finds the node with minimum distance
-				best_dist_idx.first=std::numeric_limits<uint32_t>::max();
-				for cur_node in 0..c_block.getN() {
-					DType d= comp.computeDist(c_block.getFeature<TData>(cur_node));
-					if (d<best_dist_idx.first) best_dist_idx=std::make_pair(d,cur_node);
+				let child_idx = q.min_index(block.base as _, block.n as _) as u32;
+				if level == Some(cur_level) {
+					// if reached level,save
+					r2.insert(block.base, idx as _);
 				}
-				if( level==storeLevel)//if reached level,save
-					r2[curNode].push_back( cur_feature);
 
-				bn_info=c_block.getBlockNodeInfo(best_dist_idx.second);
-				//if the node is leaf get weight,else go to its children
-				if ( bn_info->isleaf()){
-					r1[bn_info->getId()]+=bn_info->weight;
-					if( level<storeLevel)//store level not reached, save now
-						r2[curNode].push_back( cur_feature);
-				break;
+				assert!(child_idx < block.n);
+
+				if let Some(children) = block.children.as_ref() && ((child_idx as usize) < children.len()) {
+					// println!("\tRecurse child {}", child_idx);
+					// Child is a branch
+					block = &children[child_idx as usize];
+					cur_level += 1;
+				} else {
+					// println!("Found leaf {}", child_idx);
+					// Child is a leaf -> add weight
+					r.update(block.base + child_idx, 1.0);
+					if level.is_none_or(|level| cur_level < level) {
+						// store level not reached, save now
+						r2.insert(block.base, idx as _);
+					}
+					break;
 				}
-				else setBlock(bn_info->getId(),c_block);//go to its children
-				curNode= curNode<<nbits;
-				curNode|=best_dist_idx.second;
-				level++;
-			}while( !bn_info->isleaf() && bn_info->getId()!=0);*/
-			todo!()
+			}
 		}
-	}
 
-	fn setParams(&mut self, aligment: usize, k: usize, desc_type: usize, desc_size: usize, nblocks: usize, desc_name: &str) {
-		self.params.set_name(desc_name);
-	
-		todo!()
-		/*self.params.alignment = aligment;
-		self.params.m_k = k;
-		self.params.desc_type=desc_type;
-		self.params.desc_size=desc_size;
-		self.params.nblocks = nblocks;
-	
-	
-		let desc_size_bytes_al: u64 = 0;
-		let block_size_bytes_al: u64 = 0;
-	
-		//consider possible aligment of each descriptor adding offsets at the end
-		self.params.desc_size_bytes_wp = self.params.desc_size;
-		_desc_size_bytes_al= _params._desc_size_bytes_wp/ _params._aligment;
-		if( _params._desc_size_bytes_wp% _params._aligment!=0)   _desc_size_bytes_al++;
-		_params._desc_size_bytes_wp= _desc_size_bytes_al* _params._aligment;
-	
-	
-		let foffnbytes_alg = sizeof(uint64_t)/_params._aligment;
-		if(sizeof(uint64_t)%_params._aligment!=0) foffnbytes_alg++;
-		_params._feature_off_start=foffnbytes_alg*_params._aligment;
-		_params._child_off_start=_params._feature_off_start+_params._m_k*_params._desc_size_bytes_wp ;//where do children information start from the start of the block
-	
-		//block: nvalid|f0 f1 .. fn|ni0 ni1 ..nin
-		_params._block_size_bytes_wp=_params._feature_off_start+  _params._m_k * ( _params._desc_size_bytes_wp + sizeof(Vocabulary::block_node_info));
-		_block_size_bytes_al=_params._block_size_bytes_wp/_params._aligment;
-		if (_params._block_size_bytes_wp%_params._aligment!=0) _block_size_bytes_al++;
-		_params._block_size_bytes_wp= _block_size_bytes_al*_params._aligment;
-	
-		//give memory
-		_params._total_size=_params._block_size_bytes_wp*_params._nblocks;
-		_data = std::unique_ptr<char[], decltype(&AlignedFree)>((char*)AlignedAlloc(_params._aligment, _params._total_size), &AlignedFree);
-	
-		memset(_data.get(), 0, _params._total_size);*/
-	
+		let dt = start.elapsed();
+		println!("Transform {} rows in {}ms ({}ns/row)", features.len(), dt.as_millis_f32(), (dt.as_nanos() as f64 / (features.len() as f64)));
+
+		Ok((r, r2))
 	}
 }
 
-impl SelfHash for Vocabulary {
+/*impl SelfHash for Vocabulary {
 	fn hash(&self) -> u64 {
 		let mut seed = 0;
 		for i in 0..self.params.total_size {
@@ -492,42 +365,4 @@ impl SelfHash for Vocabulary {
 		}
 		seed
 	}
-}
-
-
-
-const VOCABULARY_MAGIC: u64 = 55824124;
-impl Serialize for Vocabulary {
-	fn write_to(&self, mut dst: impl Write) -> std::io::Result<()> {
-		//magic number
-		dst.write_all(&VOCABULARY_MAGIC.to_le_bytes())?;
-		//save string
-		self.params.write_to(&mut dst)?;
-		
-		// str.write((char*)&_params,sizeof(params));
-		// str.write(_data.get(), _params._total_size);
-		todo!()
-	}
-}
-
-impl Deserialize for Vocabulary {
-	fn read_from(mut src: impl Read) -> std::io::Result<Self> {
-		{
-			let sig = {
-				let mut sig_buf = [0u8; size_of::<u64>()];
-				src.read_exact(&mut sig_buf)?;
-				u64::from_le_bytes(sig_buf)
-			};
-			if VOCABULARY_MAGIC != sig {
-				return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid signature"));
-			}
-		}
-
-		//read string
-		let params = VocabularyParams::read_from(&mut src)?;
-		// _data = std::unique_ptr<char[], decltype(&AlignedFree)>((char*)AlignedAlloc(_params._aligment, _params._total_size), &AlignedFree);
-		// if (_data.get() == nullptr) throw std::runtime_error("Vocabulary::fromStream Could not allocate data");
-		// str.read(_data.get(), _params._total_size);
-		todo!()
-	}
-}
+}*/
