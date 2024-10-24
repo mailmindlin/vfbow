@@ -9,7 +9,7 @@ use ndarray::ArrayView1;
 #[cfg(target_arch="x86_64")]
 use crate::features::distance_l2::{l2_avx512_array, l2_avx_array, l2_sse_array};
 use crate::features::{shared::ToArray, Features};
-use crate::serde::{read_u32ish, write_u32ish};
+use crate::util::serde::{read_u32ish, write_u32ish};
 #[cfg(target_arch="aarch64")]
 use super::distance_l2::{l2_neon_slice, l2_neon_array};
 use super::{distance_l2::{l2_array, l2_slice, AccumulateL2}, shared::is_slice_packed};

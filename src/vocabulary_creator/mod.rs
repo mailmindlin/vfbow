@@ -12,7 +12,7 @@ use rand::{rngs::StdRng, SeedableRng};
 use rayon::ScopeFifo;
 pub(crate) use specialization::VocabElement;
 
-use crate::{traits::NodeId, vocabulary::{Vocabulary, VocabularyBuilder, VocabularyParams}};
+use crate::vocabulary::{Vocabulary, VocabularyBuilder, VocabularyParams};
 
 
 #[cfg_attr(feature="python", pyo3::pyclass(module="vfbow", get_all, set_all, eq))]
@@ -197,7 +197,7 @@ impl VocabularyCreator {
 
 		//set all indices for the first level
 		let root_findices = (0..features.len())
-			.map(|i| i as NodeId)
+			.map(|i| i as u32)
 			.collect::<Vec<_>>();
 
 		let empty_feature = Array1::<T>::zeros([0]);

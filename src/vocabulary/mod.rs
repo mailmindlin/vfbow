@@ -5,7 +5,7 @@ use std::{ffi::CStr, fmt::Debug, io::{self, ErrorKind, Read, Write}, str::FromSt
 
 use arrayvec::ArrayString;
 
-use crate::{fbow::{FBOW, FBOW2}, features::{DistanceQuery, FeatureType, FeaturesGeneric}, traits::{DescriptorType, Deserialize, Serialize}};
+use crate::{fbow::{FBOW, FBOW2}, features::{DistanceQuery, FeatureType, FeaturesGeneric}, util::{DescriptorType, Deserialize, Serialize}};
 pub(crate) use builder::VocabularyBuilder;
 
 pub(crate) struct Node {

@@ -2,7 +2,7 @@ use std::{any, fmt::Debug};
 
 use ndarray::ArrayView1;
 
-use crate::{traits::DescriptorType, Deserialize, Serialize};
+use crate::{util::DescriptorType, Deserialize, Serialize};
 
 mod distance_l1;
 mod distance_l2;
@@ -101,7 +101,7 @@ impl FeaturesGeneric {
 
 impl Serialize for FeaturesGeneric {
 	fn write_to(&self, mut dst: impl std::io::Write) -> std::io::Result<()> {
-		use crate::serde::*;
+		use crate::util::serde::*;
 		match self {
 			FeaturesGeneric::Float32(feat) => {
 				write_u32(DescriptorType::Float32.into(), &mut dst)?;
@@ -117,7 +117,7 @@ impl Serialize for FeaturesGeneric {
 
 impl Deserialize for FeaturesGeneric {
 	fn read_from(mut src: impl std::io::Read) -> std::io::Result<Self> {
-		use crate::serde::*;
+		use crate::util::serde::*;
 		let dtype = read_u32(&mut src)?;
 		let dtype = DescriptorType::try_from(dtype)
 			.map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Unknown dtype {dtype}")))?;

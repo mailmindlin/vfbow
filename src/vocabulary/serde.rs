@@ -3,7 +3,7 @@ use std::{cmp, collections::HashMap, ffi::CStr, io::{self, ErrorKind, Read, Writ
 use arrayvec::ArrayString;
 use ndarray::ArrayView1;
 
-use crate::{traits::DescriptorType, vocabulary::{VocabularyBuilder, VocabularyParams}, Deserialize, Serialize};
+use crate::{util::DescriptorType, vocabulary::{VocabularyBuilder, VocabularyParams}, Deserialize, Serialize};
 
 use super::Vocabulary;
 

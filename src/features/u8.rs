@@ -313,7 +313,7 @@ impl FeaturesU8 {
 
 impl Serialize for FeaturesU8 {
 	fn write_to(&self, mut dst: impl std::io::Write) -> std::io::Result<()> {
-		use crate::serde::*;
+		use crate::util::serde::*;
 		write_u32ish(self.feature_len(), &mut dst)?;
 		write_u32ish(self.len(), &mut dst)?;
 
@@ -343,7 +343,7 @@ impl Serialize for FeaturesU8 {
 
 impl Deserialize for FeaturesU8 {
 	fn read_from(mut src: impl std::io::Read) -> std::io::Result<Self> {
-		use crate::serde::*;
+		use crate::util::serde::*;
 		let feature_len = read_u32(&mut src)? as usize;
 		let num_features = read_u32(&mut src)? as usize;
 		if src.is_read_vectored() {

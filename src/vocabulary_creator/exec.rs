@@ -3,8 +3,6 @@ use std::time::Instant;
 use ndarray::{Array1, CowArray, Ix1};
 use rand::Rng;
 
-use crate::traits::NodeId;
-
 use super::specialization::DistFunc;
 use super::InnerParams;
 use super::node::{BranchNode, Leaf, TerminalLeaf};
@@ -148,7 +146,7 @@ impl<'a, T: DistFunc> InnerParams<'a, T> {
 		} else {
 			// Create the assigment vectors and reserve memory
 			let capacity = feature_idxs.len() / (self.params.k as usize);
-			let mut assignments = vec![Vec::<NodeId>::with_capacity(capacity); self.params.k as usize];
+			let mut assignments = vec![Vec::<FIndex>::with_capacity(capacity); self.params.k as usize];
 			let centers = self.initial_cluster_centers(feature_idxs);
 			assert_eq!(centers.len(), self.params.k as _);
 
