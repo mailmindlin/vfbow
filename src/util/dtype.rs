@@ -1,11 +1,21 @@
-use std::io::{Read, Result as IOResult, Write};
+use std::fmt::{Display, Formatter};
 
-pub(crate) type NodeId = u32;
+// pub(crate) type NodeId = u32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DescriptorType {
 	Uint8 = 0,
 	Float32 = 5,
+}
+
+impl Display for DescriptorType {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		f.write_str(if f.alternate() {
+			self.numpy_name()
+		} else {
+			self.name()
+		})
+	}
 }
 
 impl From<DescriptorType> for u32 {
@@ -36,18 +46,29 @@ impl DescriptorType {
 			DescriptorType::Uint8 => size_of::<u8>(),
 		}
 	}
-}
-pub trait Serialize {
-	/// Write to stream
-	fn write_to(&self, dst: impl Write) -> IOResult<()>;
+
+	/// Rust type name (e.g., `u8`)
+	pub(crate) fn name(&self) -> &'static str {
+		match self {
+			Self::Uint8 => "u8",
+			Self::Float32 => "f32",
+		}
+	}
+
+	/// Numpy name (e.g., `np.uint8`)
+	pub(crate) fn numpy_name(&self) -> &'static str {
+		match self {
+			Self::Uint8 => "np.uint8",
+			Self::Float32 => "np.float32",
+		}
+	}
 }
 
-pub trait Deserialize: Sized {
-	/// Read from stream
-	fn read_from(src: impl Read) -> IOResult<Self>;
-}
-
-pub trait SelfHash {
-	/// returns a hash identifying this
-	fn hash(&self) -> u64;
+pub enum Scoring {
+	L1,
+	L2,
+	ChiSquare,
+	KL,
+	Bhattacharyya,
+	DotProduct,
 }

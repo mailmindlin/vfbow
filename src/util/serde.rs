@@ -1,4 +1,14 @@
-use std::io::{Read, Write};
+use std::io::{Read, Write, self};
+
+pub trait Serialize {
+	/// Write to stream
+	fn write_to(&self, dst: impl Write) -> io::Result<()>;
+}
+
+pub trait Deserialize: Sized {
+	/// Read from stream
+	fn read_from(src: impl Read) -> io::Result<Self>;
+}
 
 pub(crate) fn write_u32(value: u32, dst: &mut impl Write) -> std::io::Result<()> {
 	let bytes = value.to_le_bytes();

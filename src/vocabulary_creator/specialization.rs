@@ -3,7 +3,7 @@ use std::{fmt::Debug, num::NonZeroUsize};
 use ndarray::{Array1, ArrayView1};
 use num_traits::Zero;
 
-use crate::{features::FeatureType, traits::DescriptorType};
+use crate::{features::FeatureType, util::DescriptorType};
 
 use super::feature::FeatureInfo;
 
