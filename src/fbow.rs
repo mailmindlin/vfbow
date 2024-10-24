@@ -1,7 +1,70 @@
 
-use std::{collections::{hash_map::Entry, HashMap}, fmt::Debug, io, iter::FusedIterator};
+use std::{collections::{hash_map::Entry, HashMap}, fmt::Debug, hash::Hash, io, iter::FusedIterator};
 
-use crate::{serde::{read_u32, read_u32ish, write_u32, write_u32ish}, traits::{Deserialize, SelfHash, Serialize}};
+use crate::util::{serde::{read_u32, read_u32ish, write_u32, write_u32ish}, Deserialize, Scoring, SelfHash, Serialize};
+
+/// Iterate over the shared keys of two HashMaps.
+/// 
+/// Full iteration is O(min(cap_a + len_a, cap_b + len_b))
+struct ZipValues<'a, K, V> {
+	items: std::collections::hash_map::Iter<'a, K, V>,
+	lookup: &'a HashMap<K, V>,
+}
+
+impl<'a, K, V> ZipValues<'a, K, V> {
+	fn new(a: &'a HashMap<K, V>, b: &'a HashMap<K, V>) -> Self {
+		// Iterate over smaller map
+		let (smol, big) = if a.capacity() + a.len() <= b.capacity() + b.len() {
+			(a, b)
+		} else {
+			(b, a)
+		};
+		debug_assert!(smol.capacity() <= big.capacity());
+		Self {
+			items: smol.iter(),
+			lookup: big,
+		}
+	}
+}
+
+impl<'a, K: Eq + Hash, V: Copy> Iterator for ZipValues<'a, K, V> {
+	type Item = (V, V);
+
+	fn size_hint(&self) -> (usize, Option<usize>) {
+		let (_low, high) = self.items.size_hint();
+		(0, high)
+	}
+
+	fn next(&mut self) -> Option<Self::Item> {
+		while let Some((key, &value1)) = self.items.next() {
+			if let Some(&value2) = self.lookup.get(key) {
+				return Some((value1, value2));
+			}
+		}
+		None
+	}
+
+	fn fold<B, F>(self, init: B, mut f: F) -> B where Self: Sized, F: FnMut(B, Self::Item) -> B, {
+		// Iter specializes fold, so we might as well too
+		self.items.fold(init, |acc, (key, &value1)| {
+			match self.lookup.get(key) {
+				Some(&value2) => f(acc, (value1, value2)),
+				None => acc,
+			}
+		})
+	}
+}
+
+fn values_left<'a, K: Eq + Hash, V: Copy>(a: &'a HashMap<K, V>, b: &'a HashMap<K, V>, filter: impl Fn(V) -> bool, mut f: impl FnMut(V, Option<V>)) {
+	for (key, &value1) in a.iter() {
+		if !filter(value1) {
+			continue;
+		}
+		
+		let value2 = b.get(key).copied();
+		f(value1, value2);
+	}
+}
 
 /// Bag of words
 #[cfg_attr(feature="python", pyo3::pyclass(mapping, eq, frozen, module="vfbow", extends=pyo3::types::PyDict))]
@@ -44,30 +107,113 @@ impl FBOW {
 		}
 	}
 
-	/// Returns the similitude score between to image descriptors using L2 norm
-	pub fn score(&self, other: &Self) -> f64 {
-		// Iterate over smaller map
-		let it = if self.len() < other.len() {
-			self.0.iter()
-		} else {
-			other.0.iter()
-		};
+	fn zip<'a>(&'a self, other: &'a Self) -> ZipValues<'a, u32, f32> {
+		ZipValues::new(&self.0, &other.0)
+	}
 
-		let mut score = 0.;
-		for (key, value1) in it {
-			if let Some(value2) = other.0.get(key) {
-				score += (*value1 as f64) * (*value2 as f64);
-			}
+	/// Returns the similitude score between to image descriptors using L2 norm
+	pub fn score(&self, other: &Self, metric: Scoring) -> f64 {
+		match metric {
+			Scoring::L1 => self.score_l1(other),
+			Scoring::L2 => self.score_l2(other),
+			Scoring::ChiSquare => self.score_chi_squared(other),
+			Scoring::KL => self.score_kl(other),
+			Scoring::Bhattacharyya => self.score_battacharyya(other),
+			Scoring::DotProduct => self.score_dot(other),
 		}
+	}
+
+	/// Compute L1 score
+	/// 
+	/// Returns score in range [0..1]
+	pub fn score_l1(&self, other: &Self) -> f64 {
+		let score = self.zip(other)
+			.map(|(v1, v2)| ((v1 - v2).abs() - v1.abs() - v2.abs()) as f64)
+			.sum::<f64>();
+		// ||v - w||_{L1} = 2 + Sum(|v_i - w_i| - |v_i| - |w_i|) 
+		//		for all i | v_i != 0 and w_i != 0 
+		// (Nister, 2006)
+		// scaled_||v - w||_{L1} = 1 - 0.5 * ||v - w||_{L1}
+		let score = -score / 2.0;
+
+		// Result should be between 0 and 1 (inclusive)
+		debug_assert!(0. <= score && score <= 1.);
+		score
+	}
+
+	pub fn score_l2(&self, other: &Self) -> f64 {
+		let score = self.zip(other)
+			.map(|(v1, v2)| (v1 * v2) as f64)
+			.sum::<f64>();
 
 		// ||v - w||_{L2} = sqrt( 2 - 2 * Sum(v_i * w_i) )
 		//		for all i | v_i != 0 and w_i != 0 )
 		// (Nister, 2006)
-		if score >= 1. { // rounding errors
+		let score = if score >= 1. { // rounding errors
 			1.
 		} else {
 			1. - (1. - score).sqrt() // [0..1]
-		}
+		};
+
+		// Result should be between 0 and 1 (inclusive)
+		debug_assert!(0. <= score && score <= 1.);
+		score
+	}
+
+	pub fn score_chi_squared(&self, other: &Self) -> f64 {
+		let score = self.zip(other)
+			.fold(0., |score, (v1, v2)| {
+				// (v-w)^2/(v+w) - v - w = -4 vw/(v+w)
+				// we move the -4 out
+				if v1 + v2 != 0. {
+					score + (v1 * v2 / (v1 + v2)) as f64
+				} else {
+					score
+				}
+			});
+
+		// this takes the -4 into account
+		let score = 2. * score; // [0..1]
+
+		// Result should be between 0 and 1 (inclusive)
+		debug_assert!(0. <= score && score <= 1.);
+		score
+	}
+
+	pub fn score_kl(&self, other: &Self) -> f64 {
+		let log_eps: f64 = f64::EPSILON.ln();
+
+		let mut score = 0.;
+		values_left(&self.0, &other.0,
+			|v1| v1 != 0.,
+			|v1, v2| {
+				debug_assert_ne!(v1, 0.);
+				match v2 {
+					Some(0.) => {},
+					Some(v2) => {
+						score += v1 as f64 * ((v1 / v2) as f64).ln();
+					},
+					None => {
+						let v1 = v1 as f64;
+						score += v1 * (v1.ln() - log_eps);
+					}
+				}
+			}
+		);
+		// Cannot be scaled
+		score
+	}
+
+	pub fn score_battacharyya(&self, other: &Self) -> f64 {
+		let score = self.zip(other)
+			.fold(0., |score, (v1, v2)| score + ((v1 * v2) as f64).sqrt());
+		score // already scaled
+	}
+
+	pub fn score_dot(&self, other: &Self) -> f64 {
+		let score = self.zip(other)
+			.fold(0., |score, (v1, v2)| score + ((v1 * v2) as f64));
+		score // cannot scale
 	}
 }
 
