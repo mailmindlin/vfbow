@@ -6,7 +6,7 @@ mod specialization;
 use std::{collections::VecDeque, mem, num::NonZeroUsize, sync::Mutex, u32};
 
 use feature::FeatureInfo;
-use ndarray::{Array1, CowArray, Ix1};
+use ndarray::{CowArray, Ix1};
 use node::{Branch, Leaf, Node, TerminalBranch, TerminalLeaf};
 use rand::{rngs::StdRng, SeedableRng};
 use rayon::ScopeFifo;
@@ -50,12 +50,10 @@ struct InnerParams<'a, T> {
 	params: &'a VocabularyCreatorParams,
 	rng: Mutex<StdRng>,
 	features: FeatureInfo<T>,
-	empty_feature: CowArray<'a, T, Ix1>,
 }
 
-struct InnerResult<'a, T> {
-	desc_cols: usize,
-	root_node: Node<'a, T>,
+fn empty_feature<'a, T: Clone>() -> CowArray<'a, T, Ix1> {
+	ndarray::aview1(&[]).into()
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
@@ -68,105 +66,6 @@ pub enum CreateVocabularyError {
 	TooManyChildren,
 	#[error("One of the provided arrays has a different dimension than the others")]
 	ArrayDimMismatch,
-}
-
-impl<'a, T: VocabElement> InnerResult<'a, T> {
-	fn into_vocabulary(mut self, params: &'a InnerParams<T>, desc_name: &str) -> Result<Vocabulary, CreateVocabularyError> {
-		//look for leafs and store
-		//now, create the blocks
-
-		let mut non_leaf_nodes = 0u32;
-		let mut n_leaf_nodes = 0;
-
-		let temp_array: CowArray<'_, T, Ix1> = Array1::zeros([0]).into();
-
-		// BFS
-		// Simplify tree
-		{
-			let mut queue = VecDeque::new();
-			queue.push_front(&mut self.root_node);
-			while let Some(node) = queue.pop_front() {
-				match node {
-					Node::TerminalBranch(TerminalBranch { children, .. }) => {
-						non_leaf_nodes += 1;
-						n_leaf_nodes += children.len() as u32;
-						// DO NOT recurse leaf nodes
-					},
-					Node::Terminal(..) => {
-						n_leaf_nodes += 1;
-					},
-					Node::Leaf(Leaf { feature, .. }) => {
-						// Rust doesn't make this nice
-						let feature = mem::replace(feature, temp_array.clone());
-						// Convert to terminal leaf
-						*node = Node::Terminal(TerminalLeaf {
-							feature,
-							feat_idx: n_leaf_nodes,
-						});
-						n_leaf_nodes += 1;
-					},
-					Node::Branch(Branch { children, .. }) => {
-						non_leaf_nodes += 1;
-						//TODO: simplify some of these to TerminalBranch's?
-						queue.extend(children);
-					}
-				}
-			}
-		}
-		
-		//determine the basic elements
-		let v_params = {
-			let mut v_params = VocabularyParams::empty();
-			let alignment = T::MIN_ALIGNMENT;
-			let desc_size = self.desc_cols * T::TYPE.element_size();
-			v_params.set(alignment, params.params.k, T::TYPE, desc_size, non_leaf_nodes, desc_name);
-			v_params
-		};
-
-		// TODO: check for overflow?
-		let mut builder = VocabularyBuilder::new(n_leaf_nodes as usize + non_leaf_nodes as usize, self.desc_cols);
-
-		//lets start
-		{
-			let mut queue = VecDeque::new();
-			queue.push_front((self.root_node, builder.root()));
-			while let Some((node, dst)) = queue.pop_front() {
-				match node {
-					Node::Branch(Branch { children, .. }) => {
-						let (leaves, branches) = children
-							.into_iter()
-							.partition::<Vec<_>, _>(Node::is_leaf);
-						
-						let leaf_feats = leaves.iter()
-							.map(|leaf| {
-								let Node::Terminal(leaf) = leaf else { unreachable!("Unexpected leaf {leaf:?}") };
-								leaf.feature.view()
-							});
-						
-						let dst_children = dst.fill(branches, |branch| {
-							match branch {
-								Node::Branch(Branch { feature, .. }) => feature.view(),
-								Node::TerminalBranch(TerminalBranch { feature, .. }) => feature.view(),
-								_ => unreachable!("Unexpected leaf"),
-							}
-						}, leaf_feats);
-						if let Some(dst_children) = dst_children {
-							queue.extend(dst_children);
-						}
-					},
-					Node::TerminalBranch(TerminalBranch { children, .. }) => {
-						let leaf_feats = children.iter()
-							.map(|leaf| leaf.feature.view());
-						dst.fill_leaf(leaf_feats);
-					},
-					_ => unreachable!("Invalid node"),
-				}
-			}
-			assert!(queue.is_empty());
-		}
-
-		Ok(builder.finish(v_params))
-	}
 }
 
 /// This class creates the vocabulary
@@ -200,14 +99,10 @@ impl VocabularyCreator {
 			.map(|i| i as u32)
 			.collect::<Vec<_>>();
 
-		let empty_feature = Array1::<T>::zeros([0]);
-		let empty_feature: CowArray<'_, T, Ix1> = empty_feature.view().into();
-
 		let params = InnerParams {
 			params: &self.params,
 			rng: Mutex::new(StdRng::from_seed([0u8; 32])),
 			features,
-			empty_feature,
 		};
 
 		// Fix up nthreads
@@ -231,9 +126,6 @@ impl VocabularyCreator {
 			println!("Using nthreads={nthreads:?}");
 		}
 
-		let empty_feature = Array1::<T>::zeros([0]);
-		let empty_feature: CowArray<'_, T, Ix1> = empty_feature.view().into();
-
 		trait JobQueue<'f, 'n, T> {
 			fn push(&mut self, depth: usize, node: &'n mut Node<'f, T>, params: &'f InnerParams<'f, T>);
 		}
@@ -256,7 +148,7 @@ impl VocabularyCreator {
 			println!("create_level L={}", depth);
 			let Node::Leaf(Leaf { feature, findices, .. }) = node else { unreachable!() };
 			// Take feature out of leaf
-			let feature = mem::replace(feature, params.empty_feature.clone());
+			let feature = mem::replace(feature, empty_feature());
 
 			match params.create_level(&findices) {
 				node::BranchNode::Terminal(children) => {
@@ -294,7 +186,7 @@ impl VocabularyCreator {
 
 
 		let mut root = Node::<T>::Leaf(Leaf {
-			feature: empty_feature.clone(),//TODO: skip this
+			feature: empty_feature(),//TODO: skip this
 			findices: root_findices,
 		});
 
@@ -325,48 +217,101 @@ impl VocabularyCreator {
 		};
 
 		//now, transform the tree into a vocabulary
-		let result = InnerResult { root_node, desc_cols: params.features.feature_len() };
-		result.into_vocabulary(&params, desc_name)
+		self.build_vocabulary(root_node, desc_name, params.features.feature_len())
 	}
-	// void create(fbow::Vocabulary &Voc, const std::vector<cv::Mat> &features, const std::string &desc_name, Params params);
-	// void create(fbow::Vocabulary &Voc, const cv::Mat &features, const std::string &desc_name, Params params);
 
-	
-// private:
-	/*cv::Mat meanValue_binary( const std::vector<uint32_t>  &indices);
-	cv::Mat meanValue_float( const std::vector<uint32_t>  &indices);
+	fn build_vocabulary<T: VocabElement + Clone>(&self, mut root: Node<T>, desc_name: &str, desc_cols: usize) -> Result<Vocabulary, CreateVocabularyError> {
+		//look for leafs and store
+		//now, create the blocks
 
-	void createLevel(const std::vector<uint32_t> &findices,  int parent=0, int curL=0);
-	void createLevel(int parent=0, int curL=0, bool recursive=true);
-	std::vector<uint32_t> getInitialClusterCenters(const std::vector<uint32_t> &findices);
+		let mut non_leaf_nodes = 0u32;
+		let mut n_leaf_nodes = 0;
 
-	std::size_t vhash(const std::vector<std::vector<uint32_t> >& v_vec)  ;
+		// BFS
+		// Simplify tree
+		{
+			let mut queue = VecDeque::new();
+			queue.push_front(&mut root);
+			while let Some(node) = queue.pop_front() {
+				match node {
+					Node::TerminalBranch(TerminalBranch { children, .. }) => {
+						non_leaf_nodes += 1;
+						n_leaf_nodes += children.len() as u32;
+						// DO NOT recurse leaf nodes
+					},
+					Node::Terminal(..) => {
+						n_leaf_nodes += 1;
+					},
+					Node::Leaf(Leaf { feature, .. }) => {
+						// Rust doesn't make this nice
+						let feature = mem::replace(feature, empty_feature());
+						// Convert to terminal leaf
+						*node = Node::Terminal(TerminalLeaf {
+							feature,
+							feat_idx: n_leaf_nodes,
+						});
+						n_leaf_nodes += 1;
+					},
+					Node::Branch(Branch { children, .. }) => {
+						non_leaf_nodes += 1;
+						//TODO: simplify some of these to TerminalBranch's?
+						queue.extend(children);
+					}
+				}
+			}
+		}
+		
+		//determine the basic elements
+		let v_params = {
+			let mut v_params = VocabularyParams::empty();
+			let alignment = T::MIN_ALIGNMENT;
+			let desc_size = desc_cols * T::TYPE.element_size();
+			v_params.set(alignment, self.params.k, T::TYPE, desc_size, non_leaf_nodes, desc_name);
+			v_params
+		};
 
+		// TODO: check for overflow?
+		let mut builder = VocabularyBuilder::new(n_leaf_nodes as usize + non_leaf_nodes as usize, desc_cols);
 
-	void thread_consumer(int idx);
+		//lets start
+		{
+			let mut queue = VecDeque::new();
+			queue.push_front((root, builder.root()));
+			while let Some((node, dst)) = queue.pop_front() {
+				match node {
+					Node::Branch(Branch { children, .. }) => {
+						let (leaves, branches) = children
+							.into_iter()
+							.partition::<Vec<_>, _>(Node::is_leaf);
+						
+						let leaf_feats = leaves.iter()
+							.map(|leaf| {
+								let Node::Terminal(leaf) = leaf else { unreachable!("Unexpected leaf {leaf:?}") };
+								leaf.feature.view()
+							});
+						
+						let dst_children = dst.fill(branches, |branch| {
+							match branch {
+								Node::Branch(Branch { feature, .. }) => feature.view(),
+								Node::TerminalBranch(TerminalBranch { feature, .. }) => feature.view(),
+								_ => unreachable!("Unexpected leaf"),
+							}
+						}, leaf_feats);
+						if let Some(dst_children) = dst_children {
+							queue.extend(dst_children);
+						}
+					},
+					Node::TerminalBranch(TerminalBranch { children, .. }) => {
+						let leaf_feats = children.iter()
+							.map(|leaf| leaf.feature.view());
+						dst.fill_leaf(leaf_feats);
+					},
+					_ => unreachable!("Invalid node"),
+				}
+			}
+			assert!(queue.is_empty());
+		}
 
-	//for each pair of nodes, their distance
-	//   std::map<uint64_t,float> features_distance;
-
-	//
-
-
-	void assignToClusters(const std::vector<uint32_t> &findices, const std::vector<cv::Mat> &center_features, std::vector<vector_sptr> &assigments, bool omp=false);
-	std::vector<cv::Mat>  recomputeCenters(const std::vector<vector_sptr> &assigments, bool omp=false);
-	std::size_t vhash(const std::vector<vector_sptr>& v_vec)  ;
-
-	//------------
-	void convertIntoVoc(Vocabulary &Voc, std::string dec_name);
-
-
-	/**
-	   * Calculates the distance between two descriptors
-	   * @param a
-	   * @param b
-	   * @return distance
-	   */
-	static float distance_float_generic(const cv::Mat &a, const cv::Mat &b);
-	static float distance_hamming_generic(const cv::Mat &a, const cv::Mat &b);
-	static float distance_hamming_32bytes(const cv::Mat &a, const cv::Mat &b);
-	std::function<float(const cv::Mat &a, const cv::Mat &b)> dist_func;*/
+		Ok(builder.finish(v_params))
+	}
 }
