@@ -11,7 +11,7 @@ use io::{PyRead, PyWrite};
 use numpy::{PyArrayMethods, PyReadonlyArray2};
 use pyo3::{exceptions::{PyRuntimeError, PyValueError}, prelude::*, pymethods, pymodule, types::{PyBytes, PyModule}, Bound, PyResult, Python};
 
-use crate::{features::FeatureType, traits::{Deserialize, Serialize}, vocabulary::{TransformError, Vocabulary}, vocabulary_creator::VocabElement, CreateVocabularyError, VocabularyCreator, VocabularyCreatorParams, FBOW, FBOW2};
+use crate::{features::FeatureType, util::{Deserialize, Serialize}, vocabulary::{TransformError, Vocabulary}, vocabulary_creator::VocabElement, CreateVocabularyError, VocabularyCreator, VocabularyCreatorParams, FBOW, FBOW2};
 
 #[pymethods]
 impl VocabularyCreatorParams {
