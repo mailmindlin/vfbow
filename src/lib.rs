@@ -1,13 +1,13 @@
 #![feature(
 	let_chains, never_type,
-	round_char_boundary, unsigned_is_multiple_of, new_range_api,
-	duration_millis_float, box_as_ptr, pointer_is_aligned_to,
-	panic_backtrace_config, backtrace_frames,
-	array_chunks, iter_array_chunks, iter_partition_in_place,
-	 maybe_uninit_uninit_array, maybe_uninit_array_assume_init,
+	round_char_boundary, unsigned_is_multiple_of,
+	duration_millis_float,
+	// Backtrace
+	box_as_ptr, panic_backtrace_config, backtrace_frames,
+	array_chunks, iter_array_chunks,
 	// For efficient serialization
 	can_vector, write_all_vectored,
-	slice_as_chunks, maybe_uninit_as_bytes, maybe_uninit_write_slice, maybe_uninit_fill,
+	maybe_uninit_as_bytes, maybe_uninit_write_slice, maybe_uninit_fill,
 )]
 // AVX-512
 #![cfg_attr(target_arch="x86_64", feature(stdarch_x86_avx512, avx512_target_feature))]
