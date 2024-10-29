@@ -199,8 +199,25 @@ impl Serialize for Vocabulary {
 		//save string
 		self.params.write_to(&mut dst)?;
 
-		self.features.write_to(dst)
-		
+		self.features.write_to(&mut dst)?;
+
+		// Write node data
+		let mut queue = VecDeque::new();
+		queue.push_back(&self.root);
+		while let Some(node) = queue.pop_front() {
+			write_u32(node.base, &mut dst)?;
+			// Write variable-length values
+			write_u32(node.n, &mut dst)?;
+			if let Some(children) = &node.children {
+				write_u32ish(children.len(), &mut dst)?;
+				for child in children.iter() {
+					//TODO
+				}
+			} else {
+				write_u32ish(0, &mut dst)?;
+			}
+		}
+		Ok(())
 		// str.write((char*)&_params,sizeof(params));
 		// str.write(_data.get(), _params._total_size);
 	}
@@ -290,10 +307,11 @@ impl Deserialize for Vocabulary {
 					// println!("Read blocks {blocks:?}");
 					blocks
 				};
-				// Now convert to Vocabulary
 
+				// Now convert to Vocabulary
 				match params.desc_type {
 					DescriptorType::Uint8 => {
+						let nblocks = blocks.len();
 						let mut builder = VocabularyBuilder::<u8>::new(params.nblocks as _, params.desc_size as _);
 						let mut block_cache = HashMap::new();
 
@@ -301,7 +319,7 @@ impl Deserialize for Vocabulary {
 						for (block_id, block) in blocks.into_iter().enumerate() {
 							for child in &block.children {
 								if child.0.weight != 1.0 {
-									println!("Warning: invalid weight {}", child.0.weight);
+									println!("Warning: invalid weight {} on block {block_id}+", child.0.weight);
 								}
 							}
 							let nb = block_cache.remove(&block_id)
@@ -350,7 +368,14 @@ impl Deserialize for Vocabulary {
 				}
 			},
 			VFBOW_MAGIC => {
-				todo!("Read VFBOW")
+				//save string
+				let params = VocabularyParams::read_from(&mut src)?;
+				let features = FeaturesGeneric::read_from(src)?;
+				//TODO: consistency check
+				// let mut builder = VocabularyBuilder::<u8>::new(params.nblocks as _, params.desc_size as _);
+				
+				// Read nodes
+				todo!("Parse nodes")
 			},
 			_ => Err(io::Error::new(io::ErrorKind::InvalidData, format!("Invalid signature {magic:#08x}"))),
 		}
