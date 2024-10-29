@@ -110,7 +110,6 @@ impl Deserialize for FbowParams {
 			// We ensure there's at least one null terminator
 			let mut desc_bytes = [0u8; 51];
 			src.read_exact(&mut desc_bytes[..50])?;
-			println!("desc_buf {desc_bytes:?}");
 			let cstr = CStr::from_bytes_until_nul(&desc_bytes).unwrap();
 			let str = cstr.to_str()
 				.map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
