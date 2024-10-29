@@ -231,7 +231,14 @@ impl Deserialize for Vocabulary {
 							let b: [u8; 2] = block_data[0..2].try_into().unwrap();
 							u16::from_le_bytes(b)
 						};
-						let n = cmp::min(params.m_k, n as u32);
+
+						// This would break when reading the orb data
+						let n = if n as u32 > params.m_k {
+							println!("[warn] Block {} n = {n}, but k = {}", bi, params.m_k);
+							params.m_k
+						} else {
+							n as _
+						};
 
 						let leaf = {
 							let b: [u8; 2] = block_data[2..4].try_into().unwrap();
