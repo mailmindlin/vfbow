@@ -81,7 +81,6 @@ struct FbowParamsC {
 struct FbowParams {
 	//descriptor name. May be empty
 	desc_name: ArrayString<49>, // 49 bytes + null terminator
-	// desc_name: [u8; 50],
 	/// Memory alignment of each feature
 	alignment: u32,
 	/// Total number of blocks
@@ -364,7 +363,73 @@ impl Deserialize for Vocabulary {
 
 						return Ok(builder.finish(v_params))
 					},
-					dt => todo!("Deserialize {dt:?}"),
+					DescriptorType::Float32 => {
+						let nblocks = blocks.len();
+						let mut builder = VocabularyBuilder::<f32>::new(params.nblocks as _, params.desc_size as _);
+						let mut block_cache = HashMap::new();
+
+						block_cache.insert(0, builder.root());
+						for (block_id, block) in blocks.into_iter().enumerate() {
+							#[cfg(debug_assertions)]
+							for child in &block.children {
+								if child.0.weight != 1.0 {
+									println!("[warn] invalid weight {} on block {block_id}+", child.0.weight);
+								}
+							}
+							let Some(nb) = block_cache.remove(&block_id) else {
+								return Err(io::Error::new(ErrorKind::InvalidData, format!("Missing block {block_id}")))
+							};
+							// Reorder so leaves are at the end
+							let mut leaves = Vec::new();
+							let mut branches = Vec::new();
+							let child_is_leaf = |child: &BlockNodeInfo| {
+								if child.is_leaf() {
+									return true;
+								}
+								// Check that ID is in bounds (convert invalid children to leaves)
+								let id = child.id_or_childblock as usize;
+								if nblocks < id {
+									println!("[warn] Child {block_id} -> {id} is out of bounds ({nblocks})");
+									true
+								} else if id < block_id {
+									println!("[warn] Not a tree {block_id} -> {id}");
+									true
+								} else {
+									false
+								}
+							};
+							for (child, data) in block.children {
+								// Convert to f32
+								if !data.len().is_multiple_of(size_of::<f32>()) {
+									todo!("Good error");
+								}
+								let data = data.array_chunks::<{size_of::<f32>()}>()
+									.map(|chunk| f32::from_le_bytes(*chunk))
+									.collect::<Vec<_>>();
+								(if child_is_leaf(&child) { &mut leaves } else { &mut branches }).push((child, data));
+							}
+							
+							fn array_view<'a>((_, feat): &'a (BlockNodeInfo, Vec<f32>)) -> ArrayView1<'a, f32> {
+								ArrayView1::from(feat)
+							}
+							let children = nb.fill(branches, array_view, leaves.iter().map(array_view));
+							if let Some(children) = children {
+								for ((c_info, _), cb) in children {
+									block_cache.insert(c_info.id_or_childblock as usize, cb);
+								}
+							}
+						}
+						assert!(block_cache.is_empty());
+						drop(block_cache);
+
+						let mut v_params = VocabularyParams::empty();
+						v_params.set_name(&params.desc_name);
+						v_params.desc_type = params.desc_type;
+						v_params.m_k = params.m_k;
+						v_params.desc_size = params.desc_size as _;
+
+						return Ok(builder.finish(v_params))
+					},
 				}
 			},
 			VFBOW_MAGIC => {

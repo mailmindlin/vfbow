@@ -94,7 +94,9 @@ impl FeaturesGeneric {
 				let arr = feat.to_ndarray(py)?;
 				Ok(arr.into_any())
 			},
-			_ => todo!("f32 to python")
+			Self::Float32(..) => {
+				todo!("f32 to python")
+			}
 		}
 	}
 }
