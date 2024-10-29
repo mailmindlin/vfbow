@@ -9,9 +9,9 @@ use backtrace::PanicBacktrace;
 use features_array::PyReadonlyArray2Any;
 use io::{PyRead, PyWrite};
 use numpy::{PyArrayMethods, PyReadonlyArray2};
-use pyo3::{exceptions::{PyRuntimeError, PyValueError}, prelude::*, pymethods, pymodule, types::{PyBytes, PyModule}, Bound, PyResult, Python};
+use pyo3::{exceptions::{PyRuntimeError, PyValueError, PyZeroDivisionError}, prelude::*, pymethods, pymodule, types::{PyBytes, PyModule}, Bound, PyResult, Python};
 
-use crate::{features::FeatureType, util::{Deserialize, Serialize}, vocabulary::{TransformError, Vocabulary}, vocabulary_creator::VocabElement, CreateVocabularyError, VocabularyCreator, VocabularyCreatorParams, FBOW, FBOW2};
+use crate::{features::FeatureType, util::{Deserialize, Scoring, Serialize}, vocabulary::{TransformError, Vocabulary}, vocabulary_creator::VocabElement, CreateVocabularyError, VocabularyCreator, VocabularyCreatorParams, FBOW, FBOW2};
 
 #[pymethods]
 impl VocabularyCreatorParams {
@@ -88,6 +88,42 @@ impl FBOW {
 
 	fn __getitem__(&self, key: u32) -> Option<f32> {
 		self.as_ref().get(&key).cloned()
+	}
+
+	#[pyo3(name="score", signature = (other, metric = Scoring::L2))]
+	fn py_score(&self, py: Python<'_>, other: &FBOW, metric: Scoring) -> f64 {
+		py.allow_threads(|| {
+			self.score(other, metric)
+		})
+	}
+
+	#[pyo3(name="norm")]
+	fn py_norm(&self, py: Python<'_>) -> f64 {
+		py.allow_threads(|| self.norm())
+	}
+
+	#[pyo3(name="normalize")]
+	fn py_normalize<'py>(me: Bound<'py, Self>, py: Python<'py>,) -> PyResult<Bound<'py, Self>> {
+		let this = me.get();
+
+		let r = py.allow_threads(|| {
+			let norm = this.norm();
+			if norm == 1. {
+				Ok(None)
+			} else if norm == 0. {
+				return Err(());
+			} else {
+				let mut result = this.clone();
+				result.scale(norm.recip() as f32);
+				Ok(Some(result))
+			}
+		});
+
+		match r {
+			Err(..) => Err(PyErr::new::<PyZeroDivisionError, _>("norm=0")),
+			Ok(None) => Ok(me),
+			Ok(Some(r)) => Bound::new(py, r),
+		}
 	}
 }
 
@@ -201,7 +237,6 @@ impl Vocabulary {
 
 	#[pyo3(name="transform", signature = (features, level = None))]
 	fn py_transform<'py>(&self, py: Python<'py>, features: PyReadonlyArray2Any<'py>, level: Option<usize>) -> PyResult<(Bound<'py, FBOW>, Bound<'py, FBOW2>)> {
-
 		fn transform_inner<'py, T: numpy::Element + FeatureType + Send + Sync + RefUnwindSafe>(py: Python<'py>, vocab: &Vocabulary, features: Vec<PyReadonlyArray2<'py, T>>, level: Option<usize>) -> PyResult<Result<(FBOW, FBOW2), TransformError>> {
 			let features = features.into_iter()
 				.map(|feature| feature.to_owned_array())
@@ -235,5 +270,6 @@ fn fbow_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
 	m.add_class::<Vocabulary>()?;
 	m.add_class::<FBOW>()?;
 	m.add_class::<FBOW2>()?;
+	m.add_class::<Scoring>()?;
 	Ok(())
 }

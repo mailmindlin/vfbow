@@ -64,6 +64,8 @@ impl DescriptorType {
 	}
 }
 
+#[cfg_attr(feature="python", pyo3::pyclass(eq, eq_int, module="vfbow"))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Scoring {
 	L1,
 	L2,
