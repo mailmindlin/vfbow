@@ -72,11 +72,18 @@ impl FBOW {
 		format!("{self:?}")
 	}
 
-	fn keys(&self) -> Vec<u32> {
-		self.as_ref()
+	/// Get keys
+	#[pyo3(signature = (sorted = false))]
+	fn keys(&self, sorted: bool) -> Vec<u32> {
+		let mut result = self.as_ref()
 			.keys()
 			.copied()
-			.collect()
+			.collect::<Vec<_>>();
+		if sorted {
+			// Keys should be uniqe, so we shouldn't need to worry about stability
+			result.sort_unstable();
+		}
+		result
 	}
 
 	fn __getitem__(&self, key: u32) -> Option<f32> {
@@ -98,11 +105,18 @@ impl FBOW2 {
 		self.as_ref().get(&key).cloned()
 	}
 
-	fn keys(&self) -> Vec<u32> {
-		self.as_ref()
+	/// Get keys
+	#[pyo3(signature = (sorted = false))]
+	fn keys(&self, sorted: bool) -> Vec<u32> {
+		let mut result = self.as_ref()
 			.keys()
 			.copied()
-			.collect()
+			.collect::<Vec<_>>();
+		if sorted {
+			// Keys should be uniqe, so we shouldn't need to worry about stability
+			result.sort_unstable();
+		}
+		result
 	}
 }
 
