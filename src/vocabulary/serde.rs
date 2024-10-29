@@ -1,9 +1,9 @@
-use std::{cmp, collections::HashMap, ffi::CStr, io::{self, ErrorKind, Read, Write}, str::FromStr};
+use std::{collections::{HashMap, VecDeque}, ffi::CStr, io::{self, ErrorKind, Read, Write}, str::FromStr};
 
 use arrayvec::ArrayString;
 use ndarray::ArrayView1;
 
-use crate::{util::DescriptorType, vocabulary::{VocabularyBuilder, VocabularyParams}, Deserialize, Serialize};
+use crate::{features::FeaturesGeneric, util::{serde::{write_u32, write_u32ish}, DescriptorType}, vocabulary::{VocabularyBuilder, VocabularyParams}, Deserialize, Serialize};
 
 use super::Vocabulary;
 
