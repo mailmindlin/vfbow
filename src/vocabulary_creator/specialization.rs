@@ -1,6 +1,6 @@
 use std::{fmt::Debug, num::NonZeroUsize};
 
-use ndarray::{Array1, ArrayView1};
+use ndarray::{linalg::Dot, Array1, ArrayView1};
 use num_traits::Zero;
 
 use crate::{features::FeatureType, util::DescriptorType};
@@ -93,7 +93,7 @@ pub(super) trait DistFunc: Sized {
 
 impl DistFunc for f32 {
 	fn dist_func(a: ArrayView1<Self>, b: ArrayView1<Self>) -> f32 {
-		todo!("Distance f32")
+		Dot::dot(&a, &b)
 	}
 
 	fn mean_values(features: &FeatureInfo<Self>, indices: &[u32]) -> Array1<Self> {
