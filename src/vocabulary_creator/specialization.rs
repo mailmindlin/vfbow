@@ -19,25 +19,34 @@ impl VocabElement for u8 {
 	const MIN_ALIGNMENT: usize = 8;
 	const TYPE: DescriptorType = DescriptorType::Uint8;
 	fn prefer_alignment(ncols: NonZeroUsize) -> usize {
+		#[cfg(target_arch="x86_64")]
+		use std::arch::{x86_64::{__m128i, __m256i, __m512i}, is_x86_feature_detected};
+		#[cfg(target_arch="aarch64")]
+		use std::arch::{aarch64::uint8x16_t, is_aarch64_feature_detected};
+		//TODO: check that these work
+		#[cfg(target_arch="x86")]
+		use std::arch::{x86::{__m128i, __m256i, __m512i}, is_x86_feature_detected};
+		#[cfg(target_arch="arm")]
+		use std::arch::{arm::uint8x16_t, is_arm_feature_detected as is_aarch64_feature_detected};
+
 		let ncols = ncols.get();
-		// Prefer u128 alignment
-		#[cfg(target_arch="x86")]
-		if ncols.is_multiple_of(64) && std::arch::is_x86_feature_detected!("avx512f") {
-			return align_of::<core::arch::x86::__m512i>();
+		#[cfg(any(target_arch="x86", target_arch="x86_64"))]
+		if ncols.is_multiple_of(64) && is_x86_feature_detected!("avx512f") {
+			return align_of::<__m512i>();
 		}
-		#[cfg(target_arch="x86")]
-		if ncols.is_multiple_of(32) && std::arch::is_x86_feature_detected!("avx") {
-			return align_of::<core::arch::x86::__m256i>();
+		#[cfg(any(target_arch="x86", target_arch="x86_64"))]
+		if ncols.is_multiple_of(32) && is_x86_feature_detected!("avx") {
+			return align_of::<__m256i>();
 		}
-		#[cfg(target_arch="x86")]
-		if ncols.is_multiple_of(32) && std::arch::is_x86_feature_detected!("sse") {
-			return align_of::<core::arch::x86::__m128i>();
+		#[cfg(any(target_arch="x86", target_arch="x86_64"))]
+		if ncols.is_multiple_of(32) && is_x86_feature_detected!("sse") {
+			return align_of::<__m128i>();
 		}
 
 		#[cfg(target_arch="aarch64")]
-		if ncols.is_multiple_of(16) && std::arch::is_aarch64_feature_detected!("neon") {
+		if ncols.is_multiple_of(16) && is_aarch64_feature_detected!("neon") {
 			// NEON 
-			return align_of::<core::arch::aarch64::uint8x16_t>();
+			return align_of::<uint8x16_t>();
 		}
 
 		// Try using u128
@@ -56,28 +65,38 @@ impl VocabElement for f32 {
 	const TYPE: DescriptorType = DescriptorType::Float32;
 
 	fn prefer_alignment(ncols: NonZeroUsize) -> usize {
+		#[cfg(target_arch="x86_64")]
+		use std::arch::{x86_64::{__m128, __m256, __m512}, is_x86_feature_detected};
+		#[cfg(target_arch="aarch64")]
+		use std::arch::{aarch64::{float32x4_t, float32x2_t}, is_aarch64_feature_detected};
+		//TODO: check that these work
+		#[cfg(target_arch="x86")]
+		use std::arch::{x86::{__m128, __m256, __m512}, is_x86_feature_detected};
+		#[cfg(target_arch="arm")]
+		use std::arch::{arm::{float32x4_t, float32x2_t}, is_arm_feature_detected as is_aarch64_feature_detected};
+
 		let ncols = ncols.get();
-		// Prefer u128 alignment
-		#[cfg(target_arch="x86")]
-		if ncols.is_multiple_of(16) && std::arch::is_x86_feature_detected!("avx512f") {
-			return align_of::<core::arch::x86::__m512>();
+
+		#[cfg(any(target_arch="x86", target_arch="x86_64"))]
+		if ncols.is_multiple_of(16) && is_x86_feature_detected!("avx512f") {
+			return align_of::<__m512>();
 		}
-		#[cfg(target_arch="x86")]
-		if ncols.is_multiple_of(8) && std::arch::is_x86_feature_detected!("avx") {
-			return align_of::<core::arch::x86::__m256>();
+		#[cfg(any(target_arch="x86", target_arch="x86_64"))]
+		if ncols.is_multiple_of(8) && is_x86_feature_detected!("avx") {
+			return align_of::<__m256>();
 		}
-		#[cfg(target_arch="x86")]
-		if ncols.is_multiple_of(4) && std::arch::is_x86_feature_detected!("sse") {
-			return align_of::<core::arch::x86::__m128>();
+		#[cfg(any(target_arch="x86", target_arch="x86_64"))]
+		if ncols.is_multiple_of(4) && is_x86_feature_detected!("sse") {
+			return align_of::<__m128>();
 		}
 
 		#[cfg(target_arch="aarch64")]
-		if ncols.is_multiple_of(2) && std::arch::is_aarch64_feature_detected!("neon") {
+		if ncols.is_multiple_of(2) && is_aarch64_feature_detected!("neon") {
 			// NEON
 			return if ncols.is_multiple_of(4) {
-				align_of::<core::arch::aarch64::float32x4_t>()
+				align_of::<float32x4_t>()
 			} else {
-				align_of::<core::arch::aarch64::float32x2_t>()
+				align_of::<float32x2_t>()
 			}
 		}
 
