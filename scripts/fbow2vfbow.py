@@ -5,7 +5,7 @@ from vfbow import Vocabulary
 def convert(src: Path, dst: Path):
     with open(src, 'rb') as f:
         voc = Vocabulary.read_from(f)
-
+    
     with open(dst, 'wb') as f:
         voc.write_to(f)
 
