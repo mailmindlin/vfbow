@@ -325,7 +325,7 @@ impl Deserialize for Vocabulary {
 							}, leaves.iter().map(|(_info, feat)| ArrayView1::from(feat)));
 							if let Some(children) = children {
 								for ((c_info, _), cb) in children {
-									todo!()
+									block_cache.insert(c_info.id_or_childblock as usize, cb);
 								}
 							}
 						}
@@ -336,14 +336,12 @@ impl Deserialize for Vocabulary {
 						v_params.set_name(&params.desc_name);
 						v_params.desc_type = params.desc_type;
 						v_params.m_k = params.m_k;
+						v_params.desc_size = params.desc_size as _;
 
 						return Ok(builder.finish(v_params))
 					},
 					dt => todo!("Deserialize {dt:?}"),
 				}
-				// _data = std::unique_ptr<char[], decltype(&AlignedFree)>((char*)AlignedAlloc(_params._aligment, _params._total_size), &AlignedFree);
-				// if (_data.get() == nullptr) throw std::runtime_error("Vocabulary::fromStream Could not allocate data");
-				// str.read(_data.get(), _params._total_size);
 			},
 			VFBOW_MAGIC => {
 				todo!("Read VFBOW")
