@@ -71,6 +71,7 @@ fn array_to_cow<'a, E: FromArray<T>, T>(array: ArrayView1<'a, T>) -> Cow<'a, E> 
 	Cow::Owned(unsafe { dst.assume_init() })
 }
 
+#[allow(private_bounds)]
 impl<'a, E: FeatureDistance + ToOwned> AlignQuery<'a, E, E> {
 	pub(super) fn new<T>(features: &'a [E], array: ArrayView1<'a, T>) -> Self where E: FromArray<T> {
 		Self {
