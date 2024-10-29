@@ -347,14 +347,14 @@ impl Deserialize for FBOW2 {
 
 impl SelfHash for FBOW2 {
 	fn hash(&self) -> u64 {
-		/*
-		uint64_t seed = 0;
-	for(const auto &e:*this){
-		seed^= e.first + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-		for(const auto &idx:e.second)
-			seed^= idx + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-	}
-	return seed; */
-		todo!("FBOW2::hash")
+		let mut seed = 0;
+		//TODO: I'm not 100% sure this is stable
+		for (&key, values) in self.0.iter() {
+			seed ^= (key as u64) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+			for &value in values {
+				seed ^= (value as u64) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+			}
+		}
+		seed
 	}
 }
