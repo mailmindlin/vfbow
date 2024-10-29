@@ -36,6 +36,7 @@ impl FileOrFileLike {
 	}
 }
 
+/// Python argument that we can adapt to [std::io::Read]
 pub(super) enum PyRead {
 	Native(File),
 	Wrapped(PyFileLikeObject),
@@ -65,6 +66,7 @@ impl<'py> FromPyObject<'py> for PyRead {
 	}
 }
 
+/// Python argument that we can adapt to [std::io::Write]
 pub(super) enum PyWrite {
 	Native(File),
 	Wrapped(PyFileLikeObject),
