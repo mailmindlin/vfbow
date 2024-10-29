@@ -1,10 +1,12 @@
 use std::{borrow::Cow, io::{IoSliceMut, Write}, mem::MaybeUninit};
 #[cfg(target_arch="aarch64")]
 use std::arch::{is_aarch64_feature_detected, aarch64::uint8x16_t};
+#[cfg(target_arch="arm")]
+use std::arch::{is_arm_feature_detected as is_aarch64_feature_detected, arm::uint8x16_t};
 
 use ndarray::ArrayView1;
 
-#[cfg(target_arch="aarch64")]
+#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 use super::distance_l1::{l1_neon_array, l1_neon_slice};
 use crate::{features::shared::{SliceQuery, ToArray}, Deserialize, Serialize};
 
@@ -24,7 +26,7 @@ impl FeatureDistance for [u8] {
 	}
 }
 
-#[cfg(target_arch="aarch64")]
+#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 impl FeatureDistance for [uint8x16_t] {
 	type Metric = L1;
 	type Distance = u32;
@@ -192,7 +194,7 @@ impl<E: AccumulateL1 + Sized + ValidZeroBits + Copy, const N: usize, const F: us
 	}
 }
 
-#[cfg(target_arch="aarch64")]
+#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 impl<const N: usize, const F: usize> FeatureDistance for TransmuteArray<std::arch::aarch64::uint8x16_t, N, F> {
 	type Metric = L1;
 	type Distance = u32;
@@ -208,9 +210,9 @@ type Padded8Array<const N: usize, const L: usize> = TransmuteArray<u64, N, L>;
 
 #[allow(private_interfaces)]
 pub(crate) enum QueryU8<'a> {
-	#[cfg(target_arch="aarch64")]
+	#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 	Neon32(AlignQuery<'a, TransmuteArray<std::arch::aarch64::uint8x16_t, 2, 32>>),
-	#[cfg(target_arch="aarch64")]
+	#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 	Neon61(AlignQuery<'a, TransmuteArray<std::arch::aarch64::uint8x16_t, 4, 61>>),
 	Array32(AlignQuery<'a, Packed8Array<4>>),
 	Array64(AlignQuery<'a, Packed8Array<8>>),
@@ -221,9 +223,9 @@ pub(crate) enum QueryU8<'a> {
 impl<'a> DistanceQuery for QueryU8<'a> {
 	fn min_index(&self, offset: usize, len: usize) -> usize {
 		match self {
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			QueryU8::Neon32(q) => q.min_index(offset, len),
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			QueryU8::Neon61(q) => q.min_index(offset, len),
 			QueryU8::Array32(q) => q.min_index(offset, len),
 			QueryU8::Array64(q) => q.min_index(offset, len),
@@ -236,10 +238,10 @@ impl<'a> DistanceQuery for QueryU8<'a> {
 #[allow(private_interfaces)]
 pub(crate) enum FeaturesU8 {
 	/// ARM NEON `[uint8x16; 4]` for ORB
-	#[cfg(target_arch="aarch64")]
+	#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 	Neon32(Vec<TransmuteArray<std::arch::aarch64::uint8x16_t, 2, 32>>),
 	/// ARM NEON `[uint8x16; 4]` for ORB
-	#[cfg(target_arch="aarch64")]
+	#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 	Neon61(Vec<TransmuteArray<std::arch::aarch64::uint8x16_t, 4, 61>>),
 	// === Platform-agnostic ===
 	/// Store as `[u64; 4]`, for ORB
@@ -259,9 +261,9 @@ pub(crate) enum FeaturesU8 {
 impl FeaturesU8 {
 	pub(super) fn feature_len(&self) -> usize {
 		match self {
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			FeaturesU8::Neon32(..) => 32,
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			FeaturesU8::Neon61(..) => 61,
 			FeaturesU8::Array32(..) => 32,
 			FeaturesU8::Array61(..) => 61,
@@ -272,9 +274,9 @@ impl FeaturesU8 {
 
 	pub(super) fn storage(&self) -> &'static str {
 		match self {
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			FeaturesU8::Neon32(..) => "neon16_32",
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			FeaturesU8::Neon61(..) => "neon16_61",
 			FeaturesU8::Array32(..) => "array8_32",
 			FeaturesU8::Array61(..) => "array8_61",
@@ -285,9 +287,9 @@ impl FeaturesU8 {
 
 	pub(super) fn len(&self) -> usize {
 		match self {
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			FeaturesU8::Neon32(v) => v.len(),
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			FeaturesU8::Neon61(v) => v.len(),
 			FeaturesU8::Array32(v) => v.len(),
 			FeaturesU8::Array61(v) => v.len(),
@@ -326,9 +328,9 @@ impl Serialize for FeaturesU8 {
 		}
 
 		match self {
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			FeaturesU8::Neon32(vec) => write_features(vec, dst),
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			FeaturesU8::Neon61(vec) => write_features(vec, dst),
 			FeaturesU8::Array32(vec) => write_features(vec, dst),
 			FeaturesU8::Array64(vec) => write_features(vec, dst),
@@ -384,12 +386,12 @@ impl Features<u8> for FeaturesU8 {
 			64 => Self::Array64(Vec::with_capacity(capacity)),
 			
 			// Specialize for AKAZE
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			61 if cfg!(target_feature="neon") => Self::Neon61(Vec::with_capacity(capacity)),
 			61 => Self::Array61(Vec::with_capacity(capacity)),
 			
 			// Specialize for ORB
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			32 if cfg!(target_feature="neon") => Self::Neon32(Vec::with_capacity(capacity)),
 			32 => Self::Array32(Vec::with_capacity(capacity)),
 			_ => {
@@ -417,9 +419,9 @@ impl Features<u8> for FeaturesU8 {
 		}
 
 		match self {
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			FeaturesU8::Neon32(vec) => insert_array(vec, features),
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			FeaturesU8::Neon61(vec) => insert_array(vec, features),
 			FeaturesU8::Array32(vec) => insert_array(vec, features),
 			FeaturesU8::Array64(vec) => insert_array(vec, features),
@@ -450,9 +452,9 @@ impl Features<u8> for FeaturesU8 {
 		assert_eq!(value.len(), self.feature_len(), "Invalid feature length");
 
 		match self {
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			FeaturesU8::Neon32(features) => QueryU8::Neon32(AlignQuery::new(features, value)),
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			FeaturesU8::Neon61(features) => QueryU8::Neon61(AlignQuery::new(features, value)),
 			FeaturesU8::Array32(features) => QueryU8::Array32(AlignQuery::new(features, value)),
 			FeaturesU8::Array64(features) => QueryU8::Array64(AlignQuery::new(features, value)),

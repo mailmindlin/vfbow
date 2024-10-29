@@ -1,16 +1,20 @@
 #[cfg(target_arch="aarch64")]
 use std::arch::{is_aarch64_feature_detected, aarch64::float32x4_t};
-#[cfg(target_arch="x86_64")]
+#[cfg(target_arch="arm")]
+use std::arch::{is_arm_feature_detected, arm::float32x4_t};
+#[cfg(any(target_arch="x86_64"))]
 use std::arch::{is_x86_feature_detected, x86_64::{__m128, __m256, __m512}};
+#[cfg(target_arch="x86")]
+use std::arch::{is_x86_feature_detected, x86::{__m128, __m256, __m512}};
 use std::{any, borrow::Cow, mem::MaybeUninit};
 
 use ndarray::ArrayView1;
 
-#[cfg(target_arch="x86_64")]
+#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 use crate::features::distance_l2::{l2_avx512_array, l2_avx_array, l2_sse_array};
 use crate::features::{shared::ToArray, Features};
 use crate::util::serde::{read_u32ish, write_u32ish};
-#[cfg(target_arch="aarch64")]
+#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 use super::distance_l2::{l2_neon_slice, l2_neon_array};
 use super::{distance_l2::{l2_array, l2_slice, AccumulateL2}, shared::is_slice_packed};
 use crate::{Deserialize, Serialize};
@@ -67,7 +71,7 @@ impl FeatureDistance for [f32] {
 	}
 }
 
-#[cfg(target_arch="aarch64")]
+#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 impl FeatureDistance for [float32x4_t] {
 	type Metric = L2;
 	type Distance = f32;
@@ -91,7 +95,7 @@ impl<E: Sized + Copy, const N: usize> FromArray<f32> for TransmuteArray<E, N> {
 			Self::from_slice(dst, slice)
 		} else {
 			assert!(size_of::<E>().is_multiple_of(size_of::<f32>()));
-			let F = N * size_of::<E>() / size_of::<f32>();
+			let feature_len = N * size_of::<E>() / size_of::<f32>();
 			assert_ne!(size_of::<E>(), 0, "Can't use ZSTs");
 			assert_ne!(N, 0, "Empty feature");
 
@@ -105,7 +109,7 @@ impl<E: Sized + Copy, const N: usize> FromArray<f32> for TransmuteArray<E, N> {
 			
 			// Slow path: we have to copy from a non-contiguous view
 			println!("Warn: transmute slow");
-			assert_ne!(array.len(), F, "Invalid feature size (actual: {}, expected: {F})", array.len());
+			assert_ne!(array.len(), feature_len, "Invalid feature size (actual: {}, expected: {feature_len})", array.len());
 			//TODO: are there any meaningful optimizations we can do here?
 			// for (src, dst) in array.iter().zip(&mut dst_u8[..F]) {
 			// 	dst.write(*src);
@@ -170,7 +174,7 @@ impl<E: AccumulateL2 + Sized + Copy, const N: usize> FeatureDistance for Transmu
 }
 
 
-#[cfg(target_arch="x86_64")]
+#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 impl<const N: usize> FeatureDistance for TransmuteArray<__m128, N> {
 	type Metric = L2;
 	type Distance = f32;
@@ -183,7 +187,7 @@ impl<const N: usize> FeatureDistance for TransmuteArray<__m128, N> {
 	}
 }
 
-#[cfg(target_arch="x86_64")]
+#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 impl<const N: usize> FeatureDistance for TransmuteArray<__m256, N> {
 	type Metric = L2;
 	type Distance = f32;
@@ -196,7 +200,7 @@ impl<const N: usize> FeatureDistance for TransmuteArray<__m256, N> {
 	}
 }
 
-#[cfg(target_arch="x86_64")]
+#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 impl<const N: usize> FeatureDistance for TransmuteArray<__m512, N> {
 	type Metric = L2;
 	type Distance = f32;
@@ -209,7 +213,7 @@ impl<const N: usize> FeatureDistance for TransmuteArray<__m512, N> {
 	}
 }
 
-#[cfg(target_arch="aarch64")]
+#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 impl<const N: usize> FeatureDistance for TransmuteArray<float32x4_t, N> {
 	type Metric = L2;
 	type Distance = f32;
@@ -225,13 +229,13 @@ impl<const N: usize> FeatureDistance for TransmuteArray<float32x4_t, N> {
 
 
 pub(crate) enum QueryF32<'a> {
-	#[cfg(target_arch="aarch64")]
+	#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 	Neon64(AlignQuery<'a, TransmuteArray<float32x4_t, 16>>),
-	#[cfg(target_arch="x86_64")]
+	#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 	Sse64(AlignQuery<'a, TransmuteArray<std::arch::x86_64::__m128, 16>>),
-	#[cfg(target_arch="x86_64")]
+	#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 	Avx64(AlignQuery<'a, TransmuteArray<std::arch::x86_64::__m256, 8>>),
-	#[cfg(target_arch="x86_64")]
+	#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 	Avx512_64(AlignQuery<'a, TransmuteArray<std::arch::x86_64::__m512, 4>>),
 	Array64(AlignQuery<'a, PackedArray<64>>),
 	Generic(AlignQuery<'a, [f32], Vec<f32>>),
@@ -239,16 +243,16 @@ pub(crate) enum QueryF32<'a> {
 
 pub(crate) enum FeaturesF32 {
 	// Specialize [f32; 64] because of SURF
-	#[cfg(target_arch="aarch64")]
+	#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 	Neon64(Vec<TransmuteArray<float32x4_t, 16>>),
 	/// `[f32; 64]` => `[__m128; 16]` (requires SSE2)
-	#[cfg(target_arch="x86_64")]
+	#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 	Sse64(Vec<TransmuteArray<std::arch::x86_64::__m128, 16>>),
 	/// `[f32; 64]` => `[__m256; 8]` (requires AVX)
-	#[cfg(target_arch="x86_64")]
+	#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 	Avx64(Vec<TransmuteArray<std::arch::x86_64::__m256, 8>>),
 	/// `[f32; 64]` => `[__m512; 4]` (requires AVX512F)
-	#[cfg(target_arch="x86_64")]
+	#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 	Avx512_64(Vec<TransmuteArray<std::arch::x86_64::__m512, 4>>),
 	/// SURF `[f32; 64]`
 	Array64(Vec<PackedArray<64>>),
@@ -263,13 +267,13 @@ pub(crate) enum FeaturesF32 {
 impl<'a> DistanceQuery for QueryF32<'a> {
 	fn min_index(&self, offset: usize, len: usize) -> usize {
 		match self {
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Sse64(q) => q.min_index(offset, len),
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx64(q) => q.min_index(offset, len),
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx512_64(q) => q.min_index(offset, len),
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			Self::Neon64(q) => q.min_index(offset, len),
 			Self::Array64(q) => q.min_index(offset, len),
 			Self::Generic(q) => q.min_index(offset, len),
@@ -280,13 +284,13 @@ impl<'a> DistanceQuery for QueryF32<'a> {
 impl FeaturesF32 {
 	pub(super) fn len(&self) -> usize {
 		match self {
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			Self::Neon64(vec) => vec.len(),
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Sse64(vec) => vec.len(),
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx64(vec) => vec.len(),
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx512_64(vec) => vec.len(),
 			Self::Array64(vec) => vec.len(),
 			Self::Generic { data, .. } => data.len(),
@@ -295,13 +299,13 @@ impl FeaturesF32 {
 
 	pub(super) fn storage(&self) -> &'static str {
 		match self {
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			Self::Neon64(..) => "neon_64",
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Sse64(..) => "sse_64",
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx64(..) => "avx_64",
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx512_64(..) => "avx512_64",
 			Self::Array64(..) => "array_64",
 			Self::Generic { .. } => "generic",
@@ -310,13 +314,13 @@ impl FeaturesF32 {
 
 	pub(super) fn feature_len(&self) -> usize {
 		match self {
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			Self::Neon64(..) => 64,
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Sse64(..) => 64,
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx64(..) => 64,
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx512_64(..) => 64,
 			Self::Array64(..) => 64,
 			Self::Generic { feature_len, .. } => *feature_len,
@@ -341,13 +345,13 @@ impl Serialize for FeaturesF32 {
 		}
 
 		match self {
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Sse64(vec) => write_features(vec, dst),
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx64(vec) => write_features(vec, dst),
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx512_64(vec) => write_features(vec, dst),
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			Self::Neon64(vec) => write_features(vec, dst),
 			Self::Array64(vec) => write_features(vec, dst),
 			Self::Generic { feature_len, data } => {
@@ -392,13 +396,13 @@ impl super::Features<f32> for FeaturesF32 {
 		assert_ne!(feature_len, 0, "Empty features");
 		match feature_len {
 			// SURF features are all 64-wide, so we specialize for that
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			64 if is_x86_feature_detected!("avx512f") => Self::Avx512_64(Vec::with_capacity(capacity)),
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			64 if is_x86_feature_detected!("avx") => Self::Avx64(Vec::with_capacity(capacity)),
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			64 if is_x86_feature_detected!("sse2") => Self::Sse64(Vec::with_capacity(capacity)),
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			64 if is_aarch64_feature_detected!("neon") => Self::Neon64(Vec::with_capacity(capacity)),
 			//TODO: do we prefer aligned slices to this?
 			64 => Self::Array64(Vec::with_capacity(capacity)),
@@ -424,13 +428,13 @@ impl super::Features<f32> for FeaturesF32 {
 		}
 
 		match self {
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Sse64(vec) => insert_array(vec, features),
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx64(vec) => insert_array(vec, features),
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx512_64(vec) => insert_array(vec, features),
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			Self::Neon64(vec) => insert_array(vec, features),
 			Self::Array64(vec) => insert_array(vec, features),
 			Self::Generic { feature_len, data } => {
@@ -455,13 +459,13 @@ impl super::Features<f32> for FeaturesF32 {
 
 	fn query<'a>(&'a self, value: ArrayView1<'a, f32>) -> Self::Query<'a> {
 		match self {
-			#[cfg(target_arch="aarch64")]
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			Self::Neon64(vec) => QueryF32::Neon64(AlignQuery::new::<f32>(vec, value)),
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx512_64(vec) => QueryF32::Avx512_64(AlignQuery::new(vec, value)),
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Sse64(vec) => QueryF32::Sse64(AlignQuery::new(vec, value)),
-			#[cfg(target_arch="x86_64")]
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx64(vec) => QueryF32::Avx64(AlignQuery::new(vec, value)),
 			Self::Array64(vec) => QueryF32::Array64(AlignQuery::new(vec, value)),
 			Self::Generic { .. } => {

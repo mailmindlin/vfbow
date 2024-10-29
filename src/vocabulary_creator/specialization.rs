@@ -19,7 +19,7 @@ impl VocabElement for u8 {
 	const MIN_ALIGNMENT: usize = 8;
 	const TYPE: DescriptorType = DescriptorType::Uint8;
 	fn prefer_alignment(ncols: NonZeroUsize) -> usize {
-		#[cfg(target_arch="x86_64")]
+		#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 		use std::arch::{x86_64::{__m128i, __m256i, __m512i}, is_x86_feature_detected};
 		#[cfg(target_arch="aarch64")]
 		use std::arch::{aarch64::uint8x16_t, is_aarch64_feature_detected};
@@ -43,7 +43,7 @@ impl VocabElement for u8 {
 			return align_of::<__m128i>();
 		}
 
-		#[cfg(target_arch="aarch64")]
+		#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 		if ncols.is_multiple_of(16) && is_aarch64_feature_detected!("neon") {
 			// NEON 
 			return align_of::<uint8x16_t>();
@@ -65,7 +65,7 @@ impl VocabElement for f32 {
 	const TYPE: DescriptorType = DescriptorType::Float32;
 
 	fn prefer_alignment(ncols: NonZeroUsize) -> usize {
-		#[cfg(target_arch="x86_64")]
+		#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 		use std::arch::{x86_64::{__m128, __m256, __m512}, is_x86_feature_detected};
 		#[cfg(target_arch="aarch64")]
 		use std::arch::{aarch64::{float32x4_t, float32x2_t}, is_aarch64_feature_detected};
@@ -90,7 +90,7 @@ impl VocabElement for f32 {
 			return align_of::<__m128>();
 		}
 
-		#[cfg(target_arch="aarch64")]
+		#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 		if ncols.is_multiple_of(2) && is_aarch64_feature_detected!("neon") {
 			// NEON
 			return if ncols.is_multiple_of(4) {

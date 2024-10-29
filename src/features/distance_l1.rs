@@ -87,7 +87,7 @@ fn l1_x64(reference: &[u64; 8], feature: &[u64; 8]) -> u32 {
 	+ (reference[7] ^ feature[7]).count_ones()
 }*/
 
-#[cfg(target_arch="aarch64")]
+#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 #[target_feature(enable = "neon")]
 pub(super) unsafe fn l1_neon_array<const N: usize>(reference: &[std::arch::aarch64::uint8x16_t; N], feature: &[std::arch::aarch64::uint8x16_t; N]) -> u32 {
 	use std::arch::aarch64::*;
@@ -105,7 +105,7 @@ pub(super) unsafe fn l1_neon_array<const N: usize>(reference: &[std::arch::aarch
 	vget_lane_u32::<0>(vpadd_u32(acc, acc))
 }
 
-#[cfg(target_arch="aarch64")]
+#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 #[target_feature(enable = "neon")]
 pub(super) unsafe fn l1_neon_slice(reference: &[std::arch::aarch64::uint8x16_t], feature: &[std::arch::aarch64::uint8x16_t]) -> u32 {
 	use std::arch::aarch64::*;
