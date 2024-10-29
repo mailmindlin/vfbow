@@ -303,7 +303,22 @@ impl Deserialize for Vocabulary {
 							// Reorder so leaves are at the end
 							let (leaves, branches) = block.children
 								.into_iter()
-								.partition::<Vec<_>, _>(|child| child.0.is_leaf());
+								.partition::<Vec<_>, _>(|(child, _)| {
+									if child.is_leaf() {
+										return true;
+									}
+									// Check that ID is in bounds (convert invalid children to leaves)
+									let id = child.id_or_childblock as usize;
+									if nblocks < id {
+										println!("[warn] Child {block_id} -> {id} is out of bounds ({nblocks})");
+										true
+									} else if id < block_id {
+										println!("[warn] Not a tree {block_id} -> {id}");
+										true
+									} else {
+										false
+									}
+								});
 							
 							let children = nb.fill(branches, |(_, feat)| {
 								ArrayView1::from(feat)
