@@ -123,6 +123,17 @@ impl FBOW {
 		}
 	}
 
+	pub fn norm(&self) -> f64 {
+		self.0.values()
+			.fold(0., |acc, &v| acc + (v * v) as f64)
+	}
+
+	pub fn scale(&mut self, scalar: f32) {
+		for value in self.0.values_mut() {
+			*value *= scalar;
+		}
+	}
+
 	/// Compute L1 score
 	/// 
 	/// Returns score in range [0..1]
