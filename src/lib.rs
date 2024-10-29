@@ -4,7 +4,7 @@
 	duration_millis_float, box_as_ptr, pointer_is_aligned_to,
 	panic_backtrace_config, backtrace_frames,
 	array_chunks, iter_array_chunks, iter_partition_in_place,
-	generic_const_exprs, maybe_uninit_uninit_array, maybe_uninit_array_assume_init,
+	 maybe_uninit_uninit_array, maybe_uninit_array_assume_init,
 	// For efficient serialization
 	can_vector, write_all_vectored,
 	slice_as_chunks, maybe_uninit_as_bytes, maybe_uninit_write_slice, maybe_uninit_fill,
