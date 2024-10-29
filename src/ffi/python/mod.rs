@@ -9,9 +9,9 @@ use backtrace::PanicBacktrace;
 use features_array::PyReadonlyArray2Any;
 use io::{PyRead, PyWrite};
 use numpy::{PyArrayMethods, PyReadonlyArray2};
-use pyo3::{exceptions::{PyRuntimeError, PyValueError, PyZeroDivisionError}, prelude::*, pymethods, pymodule, types::{PyBytes, PyModule}, Bound, PyResult, Python};
+use pyo3::{exceptions::{PyRuntimeError, PyValueError, PyZeroDivisionError}, prelude::*, pymethods, pymodule, types::{PyBytes, PyDict, PyIterator, PyModule}, Bound, PyResult, Python};
 
-use crate::{features::FeatureType, util::{Deserialize, Scoring, Serialize}, vocabulary::{TransformError, Vocabulary}, vocabulary_creator::VocabElement, CreateVocabularyError, VocabularyCreator, VocabularyCreatorParams, FBOW, FBOW2};
+use crate::{features::FeatureType, util::{Deserialize, Scoring, SelfHash, Serialize}, vocabulary::{TransformError, Vocabulary}, vocabulary_creator::VocabElement, CreateVocabularyError, VocabularyCreator, VocabularyCreatorParams, FBOW, FBOW2};
 
 #[pymethods]
 impl VocabularyCreatorParams {
@@ -64,12 +64,18 @@ impl VocabularyCreator {
 
 #[pymethods]
 impl FBOW {
+	/// Return number of elements in FBOW
 	fn __len__(&self) -> usize {
 		self.len()
 	}
 
 	fn __repr__(&self) -> String {
 		format!("{self:?}")
+	}
+
+	/// Test if `key` is a valid key
+	fn __contains__(&self, key: u32) -> bool {
+		self.as_ref().contains_key(&key)
 	}
 
 	/// Get keys
@@ -86,6 +92,18 @@ impl FBOW {
 		result
 	}
 
+	/// Get list of items
+	#[pyo3(signature = (sorted = false))]
+	fn items(&self, sorted: bool) -> Vec<(u32, f32)> {
+		let mut result = self.iter().collect::<Vec<_>>();
+		if sorted {
+			// Keys should be uniqe, so we shouldn't need to worry about stability
+			result.sort_unstable_by_key(|v| v.0);
+		}
+		result
+	}
+
+	/// Get item
 	fn __getitem__(&self, key: u32) -> Option<f32> {
 		self.as_ref().get(&key).cloned()
 	}
@@ -125,6 +143,21 @@ impl FBOW {
 			Ok(Some(r)) => Bound::new(py, r),
 		}
 	}
+
+	/// Convert to native Python dict
+	fn to_dict<'py>(this: Bound<'py, Self>, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+		let this = this.get();
+		let result = PyDict::new_bound(py);
+		for (key, value) in this.iter() {
+			result.set_item(key, value).unwrap();
+		}
+		Ok(result)
+	}
+
+	/// Hash value
+	fn __hash__(&self) -> u64 {
+		self.hash()
+	}
 }
 
 #[pymethods]
@@ -141,6 +174,11 @@ impl FBOW2 {
 		self.as_ref().get(&key).cloned()
 	}
 
+	/// Test if `key` is a valid key
+	fn __contains__(&self, key: u32) -> bool {
+		self.as_ref().contains_key(&key)
+	}
+
 	/// Get keys
 	#[pyo3(signature = (sorted = false))]
 	fn keys(&self, sorted: bool) -> Vec<u32> {
@@ -153,6 +191,11 @@ impl FBOW2 {
 			result.sort_unstable();
 		}
 		result
+	}
+
+	/// Hash value
+	fn __hash__(&self) -> u64 {
+		self.hash()
 	}
 }
 
