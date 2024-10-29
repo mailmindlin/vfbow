@@ -217,8 +217,11 @@ impl Debug for Vocabulary {
 pub enum TransformError {
 	#[error("No input data")]
 	NoInputData,
-	#[error("Transform features are of different size than the vocabulary ones")]
-	SizeMismatch,
+	#[error("Transform features are of different size ({feature_len}) than the vocabulary ones ({vocab_flen})")]
+	SizeMismatch {
+		vocab_flen: usize,
+		feature_len: usize,
+	},
 	#[error("Transform features are of different type than the vocabulary ones")]
 	DtypeMismatch,
 }
@@ -304,8 +307,11 @@ impl Vocabulary {
 		if features.nrows() == 0 {
 			return Err(TransformError::NoInputData);
 		}
-		if features.ncols() != self.params.desc_size as _ {
-			return Err(TransformError::SizeMismatch);
+		if features.ncols() != self.params.desc_size {
+			return Err(TransformError::SizeMismatch {
+				feature_len: features.ncols(),
+				vocab_flen: self.params.desc_size,
+			});
 		}
 
 		let mut r = FBOW::with_capacity(features.nrows());
@@ -351,6 +357,7 @@ impl Vocabulary {
 		}
 
 		let dt = start.elapsed();
+		#[cfg(debug_assertions)] // Don't print in release
 		println!("Transform {} rows in {}ms ({}ns/row)", features.len(), dt.as_millis_f32(), (dt.as_nanos() as f64 / (features.len() as f64)));
 
 		Ok((r, r2))
