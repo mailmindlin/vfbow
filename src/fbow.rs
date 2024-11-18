@@ -75,7 +75,8 @@ impl FBOW {
 	pub fn with_capacity(capacity: usize) -> Self {
 		Self(HashMap::with_capacity(capacity))
 	}
-	
+
+	/// Number of items in this bag of words
 	pub fn len(&self) -> usize {
 		self.0.len()
 	}
@@ -91,6 +92,7 @@ impl FBOW {
 			.map(|(k, v)| (*k, *v))
 	}
 
+	/// Remove key
 	pub fn remove(&mut self, key: u32) -> Option<f32> {
 		self.0.remove(&key)
 	}
@@ -123,11 +125,13 @@ impl FBOW {
 		}
 	}
 
+	/// Compute norm
 	pub fn norm(&self) -> f64 {
 		self.0.values()
 			.fold(0., |acc, &v| acc + (v * v) as f64)
 	}
 
+	/// Scale all scores by `scalar`
 	pub fn scale(&mut self, scalar: f32) {
 		for value in self.0.values_mut() {
 			*value *= scalar;
