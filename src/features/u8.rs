@@ -378,7 +378,7 @@ impl Deserialize for FeaturesU8 {
 impl Features<u8> for FeaturesU8 {
 	type Query<'a> = QueryU8<'a> where Self: 'a;
 	fn new(capacity: usize, feature_len: usize) -> Self {
-		println!("Init FeaturesU8 with {capacity} and {feature_len}");
+		// println!("Init FeaturesU8 with {capacity} and {feature_len}");
 		assert_ne!(feature_len, 0, "Zero-size feature");
 
 		// Select storage
@@ -402,7 +402,7 @@ impl Features<u8> for FeaturesU8 {
 				}
 			}
 		};
-		println!("\tSelected storage {}", res.storage());
+		// println!("\tSelected storage {}", res.storage());
 		res
 	}
 	fn insert<'a>(&mut self, features: impl ExactSizeIterator<Item = ArrayView1<'a, u8>>) {

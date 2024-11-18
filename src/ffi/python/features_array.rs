@@ -45,7 +45,7 @@ impl<'py> PyReadonlyArray2Any<'py> {
 		// Skip empty arrays
 		if shape.len() == 0 || shape.iter().any(|d| *d == 0) {
 			// Skip empty arrays
-			println!("Skip empty");
+			// println!("Skip empty");
 			return Ok(());
 		}
 		if shape.len() != 2 {
