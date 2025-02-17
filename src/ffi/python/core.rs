@@ -1,5 +1,6 @@
-use std::{borrow::Cow, marker::PhantomData, ops::Deref};
+use std::{borrow::Cow, ops::Deref};
 
+use numpy::PyArray1;
 use pyo3::{exceptions::{PyKeyError, PyTypeError, PyValueError, PyZeroDivisionError}, inspect::types::{ModuleName, TypeInfo}, pyclass, pymethods, types::{IntoPyDict, PyAnyMethods, PyDict, PyString, PyStringMethods}, Bound, FromPyObject, IntoPyObject, IntoPyObjectExt, Py, PyAny, PyErr, PyResult, PyTraverseError, PyVisit, Python};
 use rayon::iter::Either;
 
@@ -71,7 +72,40 @@ enum ListOutput {
 
 impl ListOutput {
 	fn to_numpy<'py>(self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-		todo!()
+		Ok(match self {
+			ListOutput::Keys(items) => PyArray1::from_vec(py, items).into_any(),
+			ListOutput::ValueB(items) => PyArray1::from_vec(py, items).into_any(),
+			ListOutput::ItemB(items) => {
+				let mut keys = Vec::with_capacity(items.len());
+				let mut values = Vec::with_capacity(items.len());
+				for (key, value) in items {
+					keys.push(key);
+					values.push(value);
+				}
+				// I think this is more reasonable than a 2d heterogenous array
+				let keys = PyArray1::from_vec(py, keys);
+				let values = PyArray1::from_vec(py, values);
+				(keys, values).into_bound_py_any(py)?
+			}
+			// I don't *think* all the values are the same length
+			ListOutput::ValueF(items) => {
+				let items = items.into_iter()
+					.map(|item| PyArray1::from_vec(py, item))
+					.collect::<Vec<_>>();
+				items.into_bound_py_any(py)?
+			},
+			ListOutput::ItemF(items) => {
+				let mut keys = Vec::with_capacity(items.len());
+				let mut values = Vec::with_capacity(items.len());
+				for (key, value) in items {
+					keys.push(key);
+					values.push(PyArray1::from_vec(py, value));
+				}
+
+				let keys = PyArray1::from_vec(py, keys);
+				(keys, values).into_bound_py_any(py)?
+			},
+		})
 	}
 }
 
@@ -118,6 +152,11 @@ impl PyDictView {
 								SortMode::None => {},
 								_ => unreachable!(),
 							}
+
+							if self.reversed {
+								keys.reverse();
+							}
+							
 							ListOutput::Keys(keys)
 						},
 						ViewMode::Values => {
@@ -127,6 +166,11 @@ impl PyDictView {
 								SortMode::None => {},
 								SortMode::Keys => unreachable!(),
 							}
+
+							if self.reversed {
+								values.reverse();
+							}
+
 							ListOutput::ValueB(values)
 						},
 						ViewMode::Items => {
@@ -138,6 +182,11 @@ impl PyDictView {
 								SortMode::Values => items.sort_by(|(_, u), (_, v)| u.total_cmp(v)),
 								SortMode::None => {},
 							}
+
+							if self.reversed {
+								items.reverse();
+							}
+
 							// We might need to extract k/v
 							match self.mode {
 								ViewMode::Items => ListOutput::ItemB(items),
@@ -164,16 +213,24 @@ impl PyDictView {
 								SortMode::None => {},
 								_ => unreachable!(),
 							}
+
+							if self.reversed {
+								keys.reverse();
+							}
+
 							ListOutput::Keys(keys)
 						},
 						ViewMode::Values => {
-							let values = b.values()
+							let mut values = b.values()
 								.cloned()
 								.collect::<Vec<_>>();
 
 							match sorted {
 								SortMode::None => {},
 								_ => unreachable!(),
+							}
+							if self.reversed {
+								values.reverse();
 							}
 							ListOutput::ValueF(values)
 						},
@@ -182,11 +239,16 @@ impl PyDictView {
 							
 							match sorted {
 								SortMode::Keys => items.sort_by_key(|(k, _)| *k),
-								SortMode::Values => todo!(),
+								SortMode::Values => unreachable!(),
 								SortMode::None => {
-									//TODO: eliminate a step here
+									//TODO: eliminate a step copy here
 								},
 							}
+
+							if self.reversed {
+								items.reverse();
+							}
+
 							// We might need to extract k/v
 							match self.mode {
 								ViewMode::Items => ListOutput::ItemF(map_vec(items, |(k, v)| (k, v.to_vec()))),
