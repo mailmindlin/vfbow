@@ -7,6 +7,7 @@ use super::specialization::DistFunc;
 use super::InnerParams;
 use super::node::{BranchNode, Leaf, TerminalLeaf};
 
+/// Feature index
 type FIndex = u32;
 
 fn cmp_f32_pair<T>((_, a): &(T, f32), (_, b): &(T, f32)) -> std::cmp::Ordering {
@@ -40,7 +41,7 @@ impl<'a, T: DistFunc> InnerParams<'a, T> {
 		// 1.Choose one center uniformly at random from among the data points.
 		let rand_idx = {
 			let mut rng = self.rng.lock().unwrap();
-			rng.gen_range(0..findices.len())
+			rng.random_range(0..findices.len())
 		};
 		let mut last_feature = findices[rand_idx];
 		// create first cluster
@@ -148,13 +149,13 @@ impl<'a, T: DistFunc> InnerParams<'a, T> {
 			let capacity = feature_idxs.len() / (self.params.k as usize);
 			let mut assignments = vec![Vec::<FIndex>::with_capacity(capacity); self.params.k as usize];
 			let centers = self.initial_cluster_centers(feature_idxs);
-			assert_eq!(centers.len(), self.params.k as _);
+			assert_eq!(centers.len(), self.params.k as usize);
 
 			let mut center_features = centers.iter()
 				.copied()
 				.map(|center| self.features.get(center as _).into())
 				.collect::<Vec<_>>();
-			assert_eq!(center_features.len(), self.params.k as _);
+			assert_eq!(center_features.len(), self.params.k as usize);
 
 			// Do k-means evolution to move means
 			let mut prev_hash = 0;
@@ -202,7 +203,7 @@ impl<'a, T: DistFunc> InnerParams<'a, T> {
 			assert_eq!(center_features.len(), assignments.len());
 
 			let children = center_features.into_iter()
-				.zip(assignments.into_iter())
+				.zip(assignments)
 				.map(|(feature, findices)| {
 					Leaf { feature, findices }
 				});
