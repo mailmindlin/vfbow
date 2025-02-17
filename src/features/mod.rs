@@ -1,6 +1,7 @@
 use std::{any, fmt::Debug};
 
-use ndarray::ArrayView1;
+use ndarray::{ArrayView1, CowArray};
+use numpy::Ix1;
 
 use crate::{util::DescriptorType, Deserialize, Serialize};
 
@@ -15,13 +16,19 @@ pub(crate) trait DistanceQuery {
 	fn min_index(&self, offset: usize, len: usize) -> usize;
 }
 
+/// Typed features storage
 pub(crate) trait Features<E: 'static>: Into<FeaturesGeneric> + Serialize + Deserialize {
+	/// Typed query
 	type Query<'a>: DistanceQuery where Self: 'a;
 
+	/// Create new storage
 	fn new(capacity: usize, feature_len: usize) -> Self;
 	/// Insert features
 	fn insert<'a>(&mut self, features: impl ExactSizeIterator<Item = ArrayView1<'a, E>>);
+	/// Query features
 	fn query<'a>(&'a self, value: ArrayView1<'a, E>) -> Self::Query<'a>;
+	/// Get feature by index
+	fn get<'a>(&'a self, index: usize) -> Option<CowArray<'a, E, Ix1>>;
 }
 
 
@@ -77,6 +84,11 @@ impl FeaturesGeneric {
 			FeaturesGeneric::Float32(feat) => feat.len(),
 			FeaturesGeneric::Uint8(feat) => feat.len(),
 		}
+	}
+
+	pub(crate) fn get<'a, T: FeatureType>(&'a self, index: usize) -> Option<CowArray<'a, T, Ix1>> {
+		let me = T::extract(&self)?;
+		me.get(index)
 	}
 
 	/// Insert features
