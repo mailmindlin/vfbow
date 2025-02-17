@@ -90,21 +90,26 @@ impl<'py> FromPyObject<'py> for PyReadonlyArray2Any<'py> {
 	fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
 		let mut result = Self::Empty;
 		if let Ok(features_numpy) = ob.downcast::<PyUntypedArray>() {
+			// Single array
 			result.insert_dyn(features_numpy, 0)?;
 		} else {
-			for (i, feature) in ob.iter()?.enumerate() {
+			// Sequence of arrays
+			for (i, feature) in ob.try_iter()?.enumerate() {
 				let feature = feature?;
-				let array = feature.downcast::<PyUntypedArray>()
-					.map_err(|e| {
+				match feature.downcast::<PyUntypedArray>() {
+					Ok(array) => {
+						result.insert_dyn(array, i)?;
+					},
+					Err(e) => {
 						let err = PyErr::new::<PyTypeError, _>("Argument must be numpy.ndarray");
-						let err_base = err.value_bound(ob.py());
+						let err_base = err.value(ob.py());
 						if err_base.hasattr("add_note").unwrap_or(false) {
 							// Ignore error, it can't help now
 							let _ = err_base.call_method1("add_note", (format!("Original error: {e}",), ));
 						}
-						err
-					})?;
-				result.insert_dyn(array, i)?;
+						return Err(err);
+					}
+				}
 			}
 		}
 		Ok(result)
