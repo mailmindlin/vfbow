@@ -1,6 +1,6 @@
 [package]
 name = "vfbow"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 
 [lib]
@@ -10,9 +10,7 @@ path = "src/lib.rs"
 
 
 [dependencies]
-aligned_box = "0.3.0"
 arrayvec = "0.7.6"
-backtrace = "0.3.74"
 # datasize = { version = "0.2.15", features = ["detailed"] }
 ndarray = "0.16.1"
 num-traits = "0.2.19"
