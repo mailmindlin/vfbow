@@ -1,10 +1,12 @@
 [package]
 name = "vfbow"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
+name = "vfbow"
+path = "src/lib.rs"
+# crate-type = ["cdylib"]
 
 
 [dependencies]
@@ -22,7 +24,18 @@ rayon = "1.10.0"
 thiserror = "2.0.11"
 
 [dev-dependencies]
-clap = { version = "4.5.20", features = ["cargo", "derive"] }
+clap = { version = "4.5.28", features = ["cargo", "derive"] }
+criterion = "0.5.1"
+
+[[bench]]
+name = "bench_create"
+path = "benches/bench_create.rs"
+harness = false
+
+[[bench]]
+name = "bench_read"
+path = "benches/bench_read.rs"
+harness = false
 
 [features]
 python = [
@@ -30,5 +43,5 @@ python = [
     # "dep:pyo3-file",
     "dep:numpy",
 ]
-default = []
+default = ["python"]
 opencv = ["dep:opencv"]
