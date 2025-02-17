@@ -27,7 +27,7 @@ clap = { version = "4.5.20", features = ["cargo", "derive"] }
 [features]
 python = [
     "dep:pyo3",
-    "dep:pyo3-file",
+    # "dep:pyo3-file",
     "dep:numpy",
 ]
 default = []
