@@ -36,8 +36,8 @@ pub struct VocabularyCreatorParams {
 }
 
 impl Default for VocabularyCreatorParams {
-	// Note: changes here should also be made to [VocabularyCreatorParams::new] for python FFI
 	fn default() -> Self {
+		// Note: changes here should also be made to [VocabularyCreatorParams::__init__] for python FFI
 		Self {
 			k: 32,
 			L: None,
@@ -72,7 +72,6 @@ pub enum CreateVocabularyError {
 }
 
 /// This class creates the vocabulary
-#[cfg_attr(feature="python", pyo3::pyclass(module="vfbow"))]
 pub struct VocabularyCreator {
 	params: VocabularyCreatorParams,
 }
