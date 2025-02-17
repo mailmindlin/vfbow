@@ -4,6 +4,7 @@ use ndarray::ArrayView1;
 
 use super::DistanceQuery;
 
+/// Metric type
 trait Metric {}
 
 pub(super) struct L1;
@@ -47,6 +48,7 @@ pub(crate) struct AlignQuery<'a, E: ToOwned + ?Sized, F = E> {
 	pub(super) value: Cow<'a, E>,
 }
 
+/// Convert ArrayView1 to Cow
 fn array_to_cow<'a, E: FromArray<T>, T>(array: ArrayView1<'a, T>) -> Cow<'a, E> {
 	// It would be really great if we didn't have to copy the array
 	//TODO
