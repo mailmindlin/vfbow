@@ -6,9 +6,10 @@ mod vocabulary_creator;
 
 use std::{borrow::Cow, io::BufWriter, num::NonZeroUsize, ops::Deref, panic::RefUnwindSafe, sync::Arc};
 
-use features_array::PyReadonlyArray2Any;
+use features_array::{CowArray2Any, PyFeaturesLike};
 use io::{PyRead, PyWrite};
-use numpy::{PyArrayMethods, PyReadonlyArray2};
+use ndarray::CowArray;
+use numpy::{Ix2, PyArrayDescr, PyReadonlyArray2};
 use pyo3::{exceptions::{PyRuntimeError, PyValueError}, prelude::*, pymethods, pymodule, types::{PyBytes, PyModule}, Bound, PyResult, Python};
 use rayon::prelude::*;
 use vocabulary_creator::PyVocabularyCreator;
@@ -139,19 +140,18 @@ impl PyVocabulary {
 	}
 
 	#[pyo3(name="transform", signature = (features, level = None))]
-	fn py_transform<'py>(&self, py: Python<'py>, features: PyReadonlyArray2Any<'py>, level: Option<usize>) -> PyResult<(Bound<'py, Bow>, Bound<'py, Features>)> {
-		fn transform_inner<'py, T: numpy::Element + FeatureType + Send + Sync + RefUnwindSafe>(py: Python<'py>, vocab: &Vocabulary, features: Vec<PyReadonlyArray2<'py, T>>, level: Option<usize>) -> Result<(Bow, Features), TransformError> {
-			let features = features.into_iter()
-				.map(|feature| feature.to_owned_array())
-				.collect::<Vec<_>>();
-			assert_eq!(features.len(), 1);
+	fn py_transform<'py>(&self, py: Python<'py>, features: PyFeaturesLike<'py>, level: Option<usize>) -> PyResult<(Bound<'py, Bow>, Bound<'py, Features>)> {
+		let Some(features) = features.as_2d() else {
+			return Err(PyErr::new::<PyValueError, _>("No features"));
+		};
 
-			py.allow_threads(|| vocab.transform::<T>(features[0].view(), level))
+		fn transform_inner<'py, T: numpy::Element + FeatureType + Send + Sync + RefUnwindSafe>(py: Python<'py>, vocab: &Vocabulary, features: CowArray<T, Ix2>, level: Option<usize>) -> Result<(Bow, Features), TransformError> {
+			py.allow_threads(|| vocab.transform::<T>(features.view(), level))
 		}
+
 		let result = match features {
-			PyReadonlyArray2Any::Empty => return Err(PyErr::new::<PyValueError, _>("No features")),
-			PyReadonlyArray2Any::U8(features) => transform_inner(py, self, features, level),
-			PyReadonlyArray2Any::F32(features) => transform_inner(py, self, features, level),
+			CowArray2Any::U8(features) => transform_inner(py, self, features, level),
+			CowArray2Any::F32(features) => transform_inner(py, self, features, level),
 		};
 
 		match result {
@@ -187,12 +187,8 @@ impl Database {
 	}
 
 	#[pyo3(name="insert_transform")]
-	fn py_insert_transform<'py>(&mut self, py: Python<'py>, features: PyReadonlyArray2Any<'py>) -> PyResult<Bound<'py, PyAny>> {
+	fn py_insert_transform<'py>(&mut self, py: Python<'py>, features: PyFeaturesLike<'py>) -> PyResult<Bound<'py, PyAny>> {
 		fn inner<'py, T: numpy::Element + VocabElement + Send + Sync + RefUnwindSafe>(py: Python<'py>, db: &mut Database, mut features: Vec<PyReadonlyArray2<'py, T>>) -> Result<Vec<usize>, TransformError> {
-			// let mut features = features.into_iter()
-			// 	.map(|feature| feature.as_array())
-			// 	.collect::<Vec<_>>();
-
 			assert_ne!(features.len(), 0);
 			if features.len() == 1 {
 				let id = {
@@ -240,9 +236,9 @@ impl Database {
 		}
 
 		let result = match features {
-			PyReadonlyArray2Any::Empty => return Err(PyErr::new::<PyValueError, _>("No features")),
-			PyReadonlyArray2Any::U8(features) => inner(py, self, features),
-			PyReadonlyArray2Any::F32(features) => inner(py, self, features),
+			PyFeaturesLike::Empty => return Err(PyErr::new::<PyValueError, _>("No features")),
+			PyFeaturesLike::U8(features) => inner(py, self, features),
+			PyFeaturesLike::F32(features) => inner(py, self, features),
 		};
 
 		// Ideally we'd track the raw type of `features` and return an int/list according, but that's hard

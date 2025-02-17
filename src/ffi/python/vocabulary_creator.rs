@@ -5,7 +5,7 @@ use pyo3::{exceptions::{PyRuntimeError, PyValueError}, pyclass, pymethods, Py, P
 
 use crate::{vocabulary_creator::VocabElement, Vocabulary, VocabularyCreator, VocabularyCreatorParams};
 
-use super::{PyReadonlyArray2Any, PyVocabulary};
+use super::{PyFeaturesLike, PyVocabulary};
 
 
 #[pymethods]
@@ -115,13 +115,13 @@ impl PyVocabularyCreator {
 	}
 	
 	/// Create vocabulary from features
-	fn create<'py>(&self, py: Python<'py>, features: PyReadonlyArray2Any<'py>, desc_name: &str) -> PyResult<PyVocabulary> {
+	fn create<'py>(&self, py: Python<'py>, features: PyFeaturesLike<'py>, desc_name: &str) -> PyResult<PyVocabulary> {
 		let vc = self.as_native(py)?;
 
 		let result = match features {
-			PyReadonlyArray2Any::Empty => return Err(PyErr::new::<PyValueError, _>("No features provided")),
-			PyReadonlyArray2Any::U8(vec) => self.create_generic(py, vc, vec, desc_name),
-			PyReadonlyArray2Any::F32(vec) => self.create_generic(py, vc, vec, desc_name),
+			PyFeaturesLike::Empty => return Err(PyErr::new::<PyValueError, _>("No features provided")),
+			PyFeaturesLike::U8(vec) => self.create_generic(py, vc, vec, desc_name),
+			PyFeaturesLike::F32(vec) => self.create_generic(py, vc, vec, desc_name),
 		};
         result.map(|voc| voc.into())
 	}
