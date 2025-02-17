@@ -15,6 +15,7 @@ pub(crate) use specialization::VocabElement;
 use crate::vocabulary::{Vocabulary, VocabularyBuilder, VocabularyParams};
 
 
+/// Parameters for [creating](VocabularyCreator) a [Vocabulary]
 #[cfg_attr(feature="python", pyo3::pyclass(module="vfbow", get_all, set_all, eq))]
 #[derive(Clone, Debug, PartialEq, Hash)]
 #[allow(non_snake_case)]
@@ -28,7 +29,9 @@ pub struct VocabularyCreatorParams {
 	/// 0 => system autodetect
 	/// 1 => single-threaded
 	pub nthreads: usize,
+	/// Maximum number of k-means iterations
 	pub max_iters: usize,
+	/// Print debug information
 	pub verbose: bool,
 }
 
@@ -75,13 +78,13 @@ pub struct VocabularyCreator {
 }
 
 impl VocabularyCreator {
-	const MAX_THREADS: usize =100;
+	const MAX_THREADS: usize = 100;
 
 	pub fn new(params: VocabularyCreatorParams) -> Self {
 		Self { params }
 	}
 
-	pub fn prefer_alignment<T: VocabElement>(&self, ncols: NonZeroUsize) -> usize {
+	fn prefer_alignment<T: VocabElement>(&self, ncols: NonZeroUsize) -> usize {
 		T::prefer_alignment(ncols)
 	}
 	
@@ -116,7 +119,7 @@ impl VocabularyCreator {
 				v => v,
 			};
 			match nthreads {
-				None => None,
+				None => None, // Error => single-threaded
 				Some(one) if one.get() == 1 => None, // Single-threaded
 				Some(t) if t > max_threads => Some(max_threads),
 				t => t,
