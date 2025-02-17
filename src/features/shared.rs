@@ -83,7 +83,6 @@ impl<'a, E: FeatureDistance + ToOwned> AlignQuery<'a, E, E> {
 	}
 }
 
-
 impl<'a, E: FeatureDistance + ToOwned + ?Sized, F: Borrow<E>> DistanceQuery for AlignQuery<'a, E, F> {
 	fn min_index(&self, offset: usize, len: usize) -> usize {
 		// println!("\tQuery {offset}..{} (+{len})", offset+len);
@@ -105,10 +104,39 @@ impl<'a, E: FeatureDistance + ToOwned + ?Sized, F: Borrow<E>> DistanceQuery for 
 
 
 pub(crate) struct SliceQuery<'a, E: ToOwned + ?Sized, F = E> {
-	pub(super) features: &'a [F],
-	pub(super) value: Cow<'a, E>,
+	features: &'a [F],
+	value: Cow<'a, E>,
 }
 
+#[allow(private_bounds)]
+impl<'a, E: FeatureDistance + ToOwned> SliceQuery<'a, E, E> {
+	pub(super) fn new<T>(features: &'a [E], array: ArrayView1<'a, T>) -> Self where E: FromArray<T> {
+		Self {
+			features,
+			value: array_to_cow(array),
+		}
+	}
+}
+
+impl<'a, E: FeatureDistance + ToOwned + ?Sized, F: Borrow<E>> DistanceQuery for SliceQuery<'a, E, F> {
+	fn min_index(&self, offset: usize, len: usize) -> usize {
+		// println!("\tQuery {offset}..{} (+{len})", offset+len);
+		let value: &E = &self.value;
+		debug_assert!(offset.checked_add(len).expect("Index overflow") <= self.features.len(), "Index {offset}+{len}={} outside valid range 0..{}", offset+len, self.features.len());
+
+		(0..len)
+			.map(|idx| {
+				let reference = self.features[offset + idx].borrow();
+				let dist = value.distance(reference);
+				(idx, dist)
+			})
+			.min_by(|(_, d1), (_, d2)| DistanceOrd::compare(d1, d2))
+			.expect("Empty length")
+			.0
+	}
+}
+
+/// Like [Ord] but implemented for floats
 pub(super) trait DistanceOrd {
 	fn compare(&self, other: &Self) -> Ordering;
 }
