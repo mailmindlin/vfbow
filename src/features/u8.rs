@@ -307,7 +307,7 @@ impl FeaturesU8 {
 			// },
 			_ => {
 				//TODO
-				Ok(numpy::PyArray2::zeros_bound(py, (0,0), false))
+				Ok(numpy::PyArray2::zeros(py, (0,0), false))
 			}
 		}
 	}
