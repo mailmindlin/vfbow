@@ -4,7 +4,8 @@ use std::arch::{is_aarch64_feature_detected, aarch64::uint8x16_t};
 #[cfg(target_arch="arm")]
 use std::arch::{is_arm_feature_detected as is_aarch64_feature_detected, arm::uint8x16_t};
 
-use ndarray::ArrayView1;
+use ndarray::{aview1, Array1, ArrayView1, CowArray};
+use numpy::Ix1;
 
 #[cfg(any(target_arch="aarch64", target_arch="arm"))]
 use super::distance_l1::{l1_neon_array, l1_neon_slice};
@@ -446,8 +447,7 @@ impl Features<u8> for FeaturesU8 {
 			},
 		}
 	}
-	
-	
+
 	fn query<'a>(&'a self, value: ArrayView1<'a, u8>) -> Self::Query<'a> {
 		assert_eq!(value.len(), self.feature_len(), "Invalid feature length");
 
@@ -460,7 +460,7 @@ impl Features<u8> for FeaturesU8 {
 			FeaturesU8::Array64(features) => QueryU8::Array64(AlignQuery::new(features, value)),
 			FeaturesU8::Array61(features) => QueryU8::Array61(AlignQuery::new(features, value)),
 			FeaturesU8::Generic { feature_len, data } => {
-				// assert_eq!(*feature_len, value.len());
+				assert_eq!(*feature_len, value.len(), "Value length mismatch");
 				// let value = match value.to_slice() {
 				// 	Some(slice) => Cow::Borrowed(slice),
 				// 	None => Cow::Owned(value.to_vec()),
@@ -469,6 +469,28 @@ impl Features<u8> for FeaturesU8 {
 				todo!("query generic u8")
 			},
 		}
+	}
+
+	fn get<'a>(&'a self, index: usize) -> Option<CowArray<'a, u8, Ix1>> {
+		let slice = match self {
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
+			FeaturesU8::Neon32(vec) => ToArray::as_slice(vec.get(index)?),
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
+			FeaturesU8::Neon61(vec) => ToArray::as_slice(vec.get(index)?),
+			FeaturesU8::Array32(vec) => ToArray::as_slice(vec.get(index)?),
+			FeaturesU8::Array64(vec) => ToArray::as_slice(vec.get(index)?),
+			FeaturesU8::Array61(vec) => ToArray::as_slice(vec.get(index)?),
+			FeaturesU8::Generic { feature_len, data } => {
+				let chunk = data.chunks_exact(*feature_len)
+					.skip(index)
+					.next()?;
+				ToArray::as_slice(chunk)
+			},
+		};
+		Some(match slice {
+			Cow::Borrowed(v) => aview1(v).into(),
+			Cow::Owned(v) => Array1::from_vec(v).into(),
+		})
 	}
 }
 

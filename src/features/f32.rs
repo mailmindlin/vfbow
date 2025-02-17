@@ -16,7 +16,7 @@ use crate::features::{shared::ToArray, Features};
 use crate::util::serde::{read_u32ish, write_u32ish};
 #[cfg(any(target_arch="aarch64", target_arch="arm"))]
 use super::distance_l2::{l2_neon_slice, l2_neon_array};
-use super::{distance_l2::{l2_array, l2_slice, AccumulateL2}, shared::is_slice_packed};
+use super::{distance_l2::{l2_array, l2_slice, AccumulateL2}, shared::{is_slice_packed, SliceQuery}};
 use crate::{Deserialize, Serialize};
 
 use super::{DistanceQuery, FeaturesGeneric};
@@ -238,7 +238,7 @@ pub(crate) enum QueryF32<'a> {
 	#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 	Avx512_64(AlignQuery<'a, TransmuteArray<std::arch::x86_64::__m512, 4>>),
 	Array64(AlignQuery<'a, PackedArray<64>>),
-	Generic(AlignQuery<'a, [f32], Vec<f32>>),
+	Generic(SliceQuery<'a, [f32], Vec<f32>>),
 }
 
 pub(crate) enum FeaturesF32 {
@@ -468,11 +468,36 @@ impl super::Features<f32> for FeaturesF32 {
 			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 			Self::Avx64(vec) => QueryF32::Avx64(AlignQuery::new(vec, value)),
 			Self::Array64(vec) => QueryF32::Array64(AlignQuery::new(vec, value)),
-			Self::Generic { .. } => {
-				todo!("query generic f32")
-				// QueryF32::Generic(AlignQuery::new_f32(vec, value)),
-			}
+			Self::Generic { data, feature_len } => {
+				assert_eq!(*feature_len, value.len(), "Feature length mismatch");
+				// QueryF32::Generic(SliceQuery::new(data, value))
+				todo!()
+			},
 		}
+	}
+
+	fn get<'a>(&'a self, index: usize) -> Option<ndarray::CowArray<'a, f32, numpy::Ix1>> {
+		let slice = match self {
+			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
+			Self::Neon64(vec) => ToArray::as_slice(vec.get(index)?),
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
+			Self::Avx512_64(vec) => ToArray::as_slice(vec.get(index)?),
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
+			Self::Sse64(vec) => ToArray::as_slice(vec.get(index)?),
+			#[cfg(any(target_arch="x86_64", target_arch="x86"))]
+			Self::Avx64(vec) => ToArray::as_slice(vec.get(index)?),
+			Self::Array64(vec) => ToArray::as_slice(vec.get(index)?),
+			Self::Generic { feature_len, data } => {
+				let chunk = data.chunks_exact(*feature_len)
+					.skip(index)
+					.next()?;
+				ToArray::as_slice(chunk)
+			},
+		};
+		Some(match slice {
+			Cow::Borrowed(v) => ndarray::aview1(v).into(),
+			Cow::Owned(v) => ndarray::Array1::from_vec(v).into(),
+		})
 	}
 }
 
