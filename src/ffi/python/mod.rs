@@ -89,6 +89,15 @@ impl PyVocabulary {
 		})
 	}
 
+	/// Get descriptor dtype (np.uint8 or np.float32)
+	#[getter]
+	fn dtype<'py>(&self, py: Python<'py>) -> Bound<'py, PyArrayDescr> {
+		match self.desc_type() {
+			crate::util::DescriptorType::Uint8 => PyArrayDescr::of::<u8>(py),
+			crate::util::DescriptorType::Float32 => PyArrayDescr::of::<f32>(py),
+		}
+	}
+
 	/// Print tree to stdout
 	#[pyo3(name="print_tree")]
 	fn py_print_tree(&self) {

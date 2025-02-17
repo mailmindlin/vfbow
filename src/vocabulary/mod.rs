@@ -285,14 +285,14 @@ impl Vocabulary {
 		&self.features
 	}
 
-	// /// Returns the descriptor type (CV_8UC1, CV_32FC1  )
-	// pub fn desc_type(&self) -> u32 {
-	//     self.params.desc_type
-	// }
-	// /// Returns desc size in bytes or 0 if not set
-	// pub fn desc_size(&self) -> Option<NonZeroUsize> {
-	//     self.params.desc_size
-	// }
+	/// Returns the descriptor type
+	pub fn desc_type(&self) -> DescriptorType {
+	    self.params.desc_type
+	}
+	/// Returns desc size in bytes or 0 if not set
+	pub fn desc_size(&self) -> usize {
+	    self.params.desc_size
+	}
 
 	/// Returns the branching factor (number of children per node)
 	pub fn k(&self) -> u32 {
