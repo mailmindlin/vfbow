@@ -1,12 +1,15 @@
 mod builder;
 mod serde;
+mod node;
 
 use std::{ffi::CStr, fmt::Debug, io::{self, ErrorKind, Read, Write}, str::FromStr, time::Instant};
 
 use arrayvec::ArrayString;
+pub use node::NodePath;
 
-use crate::{fbow::{FBOW, FBOW2}, features::{DistanceQuery, FeatureType, FeaturesGeneric}, util::{DescriptorType, Deserialize, Serialize}};
+use crate::{fbow::{Bow, Features}, features::{DistanceQuery, FeatureType, FeaturesGeneric}, util::{DescriptorType, Deserialize, Serialize}};
 pub(crate) use builder::VocabularyBuilder;
+pub use serde::{ParseValidationMode, VocabularyReadOptions};
 
 pub(crate) struct Node {
 	/// Node ID
@@ -194,7 +197,6 @@ impl Deserialize for VocabularyParams {
 }
 
 /// Main class to represent a vocabulary of visual words
-#[cfg_attr(feature="python", pyo3::pyclass(module="vfbow", frozen))]
 pub struct Vocabulary {
 	params: VocabularyParams,
 	/// Root node
@@ -297,13 +299,55 @@ impl Vocabulary {
 		self.params.m_k
 	}
 
-	/// total number of blocks
+	/// Total number of blocks
 	pub fn size(&self) -> u32 {
 		self.params.nblocks
 	}
 
 	#[allow(private_bounds)]
-	pub fn transform<T: FeatureType>(&self, features: ndarray::ArrayView2<T>, level: Option<usize>) -> Result<(FBOW, FBOW2), TransformError> {
+	pub fn transform_one<'a: 'b, 'b, T: FeatureType>(&'a self, feature: ndarray::ArrayView1<'b, T>, level: Option<usize>) -> Result<NodePath<'a>, TransformError> {
+		if feature.len() != self.params.desc_size {
+			return Err(TransformError::SizeMismatch {
+				feature_len: feature.len(),
+				vocab_flen: self.params.desc_size,
+			});
+		}
+
+		//TODO: maybe let features convert it?
+		let mut path = Vec::with_capacity(level.unwrap_or(0));
+
+		let q = self.features.query(feature);
+		let mut block = &self.root;
+
+		let mut cur_level = 0;//current level of recursion
+		//copy to another structure and add padding with zeros
+		let child_offset = loop {
+			if level == Some(cur_level) {
+				// if reached level,save
+				break None;
+			}
+
+			// Find node with minimum distance
+			//given the current block, finds the node with minimum distance
+			let child_idx = q.min_index(block.base as _, block.n as _) as u32;
+
+			assert!(child_idx < block.n);
+
+			if let Some(children) = block.children.as_ref() && ((child_idx as usize) < children.len()) {
+				// Child is a branch
+				path.push(block);
+				block = &children[child_idx as usize];
+				cur_level += 1;
+			} else {
+				// Child is a leaf
+				break Some(child_idx);
+			}
+		};
+		Ok(NodePath::new(self, path, child_offset))
+	}
+
+	#[allow(private_bounds)]
+	pub fn transform<T: FeatureType>(&self, features: ndarray::ArrayView2<T>, level: Option<usize>) -> Result<(Bow, Features), TransformError> {
 		if features.nrows() == 0 {
 			return Err(TransformError::NoInputData);
 		}
@@ -314,8 +358,8 @@ impl Vocabulary {
 			});
 		}
 
-		let mut r = FBOW::with_capacity(features.nrows());
-		let mut r2 = FBOW2::with_capacity(features.nrows());
+		let mut r = Bow::with_capacity(features.nrows());
+		let mut r2 = Features::with_capacity(features.nrows());
 
 		let start = Instant::now();
 
