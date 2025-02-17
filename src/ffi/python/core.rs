@@ -23,30 +23,48 @@ impl ViewMode {
 	}
 }
 
+/// Generic Py reference to some HashMap
+/// 
+/// Lets us use [PyDictView] for both [Bow] and [Features].
 #[derive(Debug)]
-enum AnyDict {
+enum AnyDictPy {
 	Bow(Py<Bow>),
 	Features(Py<Features>),
+	/// Value if GC'd
 	None,
 }
 
-impl AnyDict {
+impl AnyDictPy {
+	fn clone_ref(&self, py: Python) -> Self {
+		match self {
+			Self::Bow(b) => Self::Bow(b.clone_ref(py)),
+			Self::Features(f) => Self::Features(f.clone_ref(py)),
+			Self::None => Self::None,
+		}
+	}
 	fn traverse(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
 		match self {
-			AnyDict::Bow(b) => visit.call(b),
-			AnyDict::Features(b) => visit.call(b),
-			AnyDict::None => Ok(()),
+			AnyDictPy::Bow(b) => visit.call(b),
+			AnyDictPy::Features(b) => visit.call(b),
+			AnyDictPy::None => Ok(()),
 		}
 	}
 	fn clear(&mut self) {
 		*self = Self::None;
 	}
 
-	fn borrow(&self) -> Either<&Bow, &Features> {
+	fn into_py(self) -> Either<Py<Bow>, Py<Features>> {
 		match self {
-			AnyDict::Bow(b) => Either::Left(b.get()),
-			AnyDict::Features(b) =>Either::Right(b.get()),
-			AnyDict::None => panic!("Use after GC"),
+			Self::Bow(b) => Either::Left(b),
+			Self::Features(f) => Either::Right(f),
+			Self::None => panic!("Use after GC"),
+		}
+	}
+	fn as_ref(&self) -> Either<&Bow, &Features> {
+		match self {
+			AnyDictPy::Bow(b) => Either::Left(b.get()),
+			AnyDictPy::Features(b) => Either::Right(b.get()),
+			AnyDictPy::None => panic!("Use after GC"),
 		}
 	}
 }
@@ -55,11 +73,10 @@ impl AnyDict {
 #[pyclass(name="_PyDictView", sequence)]
 #[derive(Debug)]
 struct PyDictView {
-	base: AnyDict,
+	base: AnyDictPy,
 	mode: ViewMode,
 	reversed: bool,
 }
-
 
 #[derive(IntoPyObject)]
 enum ListOutput {
@@ -132,7 +149,7 @@ impl PyDictView {
 				.collect()
 		}
 
-		let base = self.base.borrow();
+		let base = self.base.as_ref();
 		py.allow_threads(|| {
 			Ok(match base {
 				Either::Left(b) => {
@@ -261,21 +278,109 @@ impl PyDictView {
 			})
 		})
 	}
+	fn contains_inner<'py>(&self, py: Python<'py>, key: Bound<'py, PyAny>) -> PyResult<bool> {
+		let base = self.base.as_ref();
+		Ok(match base {
+			Either::Left(b) => {
+				let b = b.as_ref();
+				match self.mode {
+					ViewMode::Keys => {
+						let key = key.extract::<u32>()?;
+						b.contains_key(&key)
+					},
+					ViewMode::Values => {
+						let key = key.extract::<f32>()?;
+						py.allow_threads(|| {
+							b.values()
+								.any(|value| *value == key)
+						})
+					},
+					ViewMode::Items => {
+						let (key, value) = key.extract::<(u32, f32)>()?;
+						match b.get(&key) {
+							Some(&actual_value) => value == actual_value,
+							None => false,
+						}
+					},
+				}
+			},
+			Either::Right(f) => {
+				let f = f.as_ref();
+				match self.mode {
+					ViewMode::Keys => {
+						let key = key.extract::<u32>()?;
+						f.contains_key(&key)
+					},
+					ViewMode::Values => {
+						let key = key.extract::<Vec<u32>>()?;
+						py.allow_threads(|| {
+							f.values()
+							//TODO: compare sorted?
+								.any(|value| value == &key)
+						})
+					},
+					ViewMode::Items => {
+						let (key, value) = key.extract::<(u32, Vec<u32>)>()?;
+						match f.get(&key) {
+							Some(actual_value) => &value == actual_value,
+							None => false,
+						}
+					},
+				}
+			},
+		})
+	}
 }
 
 #[pymethods]
 impl PyDictView {
 	/// True if not empty
 	fn __bool__(&self) -> bool {
-		match self.base.borrow() {
+		match self.base.as_ref() {
 			Either::Left(b) => b.__bool__(),
 			Either::Right(f) => f.__bool__(),
+		}
+	}
+	/// Get if reversed
+	#[getter]
+	fn reversed(&self) -> bool {
+		self.reversed
+	}
+	/// Get underlying mapping
+	#[getter]
+	fn mapping(&self, py: Python) -> Either<Py<Bow>, Py<Features>> {
+		//TODO: return types.MappingProxyType here?
+		self.base
+			.clone_ref(py)
+			.into_py()
+	}
+
+	fn __reversed__(&self, py: Python) -> Self {
+		Self {
+			base: self.base.clone_ref(py),
+			mode: self.mode,
+			reversed: !self.reversed,
+		}
+	}
+
+	fn __contains__<'py>(&self, py: Python<'py>, key: Bound<'py, PyAny>) -> PyResult<bool> {
+		match self.contains_inner(py, key) {
+			Ok(result) => Ok(result),
+			Err(e) => {
+				if cfg!(debug_assertions) {
+					let e1 = PyErr::new::<PyKeyError, _>("Invalid key");
+					e1.set_cause(py, Some(e));
+					Err(e1)
+				} else {
+					Ok(false)
+				}
+			}
 		}
 	}
 
 	/// Return number of elements in Bow
 	fn __len__(&self) -> usize {
-		match self.base.borrow() {
+		match self.base.as_ref() {
 			Either::Left(b) => b.__len__(),
 			Either::Right(f) => f.__len__(),
 		}
@@ -292,7 +397,7 @@ impl PyDictView {
 		format!("{self:?}")
 	}
 
-	/// Efficient of all items conversion to numpy ndarray
+	/// Efficient conversion of all items conversion to numpy ndarray
 	#[pyo3(signature = (sorted = SortModeRaw::None))]
 	fn to_numpy<'py>(&self, py: Python<'py>, sorted: SortModeRaw) -> PyResult<Bound<'py, PyAny>> {
 		self.to_py(py, sorted)
@@ -534,17 +639,17 @@ impl Bow {
 
 	/// Keys view
 	fn keys(this: Py<Self>) -> PyDictView {
-		PyDictView { base: AnyDict::Bow(this), mode: ViewMode::Keys, reversed: false }
+		PyDictView { base: AnyDictPy::Bow(this), mode: ViewMode::Keys, reversed: false }
 	}
 
 	/// Values view
 	fn values(this: Py<Self>) -> PyDictView {
-		PyDictView { base: AnyDict::Bow(this), mode: ViewMode::Values, reversed: false }
+		PyDictView { base: AnyDictPy::Bow(this), mode: ViewMode::Values, reversed: false }
 	}
 
 	/// Items view
 	fn items(this: Py<Self>) -> PyDictView {
-		PyDictView { base: AnyDict::Bow(this), mode: ViewMode::Items, reversed: false }
+		PyDictView { base: AnyDictPy::Bow(this), mode: ViewMode::Items, reversed: false }
 	}
 
 	/// Convert to native Python dict
@@ -739,17 +844,17 @@ impl Features {
 
 	/// Keys view
 	fn keys(this: Py<Self>) -> PyDictView {
-		PyDictView { base: AnyDict::Features(this), mode: ViewMode::Keys, reversed: false }
+		PyDictView { base: AnyDictPy::Features(this), mode: ViewMode::Keys, reversed: false }
 	}
 
 	/// Values view
 	fn values(this: Py<Self>) -> PyDictView {
-		PyDictView { base: AnyDict::Features(this), mode: ViewMode::Values, reversed: false }
+		PyDictView { base: AnyDictPy::Features(this), mode: ViewMode::Values, reversed: false }
 	}
 
 	/// Items view
 	fn items(this: Py<Self>) -> PyDictView {
-		PyDictView { base: AnyDict::Features(this), mode: ViewMode::Items, reversed: false }
+		PyDictView { base: AnyDictPy::Features(this), mode: ViewMode::Items, reversed: false }
 	}
 
 	fn __and__<'py>(this: Bound<'py, Self>, py: Python<'py>, other: FeaturesLike<'py>) -> PyResult<IntersectFeatures> {
