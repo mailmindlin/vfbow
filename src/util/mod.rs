@@ -1,7 +1,8 @@
 mod dtype;
 pub(crate) mod serde;
+pub(crate) mod scoring;
 pub(crate) use dtype::DescriptorType;
-pub use dtype::Scoring;
+pub use scoring::Scoring;
 pub use serde::{Serialize, Deserialize};
 
 pub trait SelfHash {

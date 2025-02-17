@@ -1,7 +1,7 @@
 
 use std::{collections::{hash_map::Entry, HashMap}, fmt::Debug, hash::Hash, io, iter::FusedIterator};
 
-use crate::util::{serde::{read_u32, read_u32ish, write_u32, write_u32ish}, Deserialize, Scoring, SelfHash, Serialize};
+use crate::util::{scoring::{LNorm, ScoringMethods}, serde::{read_u32, read_u32ish, write_u32, write_u32ish}, Deserialize, Scoring, SelfHash, Serialize};
 
 /// Iterate over the shared keys of two HashMaps.
 /// 
@@ -69,9 +69,9 @@ fn values_left<'a, K: Eq + Hash, V: Copy>(a: &'a HashMap<K, V>, b: &'a HashMap<K
 /// Bag of words
 #[cfg_attr(feature="python", pyo3::pyclass(mapping, eq, frozen, module="vfbow", extends=pyo3::types::PyDict))]
 #[derive(Clone, Debug, PartialEq)]
-pub struct FBOW(HashMap<u32, f32>);
+pub struct Bow(HashMap<u32, f32>);
 
-impl FBOW {
+impl Bow {
 	pub fn with_capacity(capacity: usize) -> Self {
 		Self(HashMap::with_capacity(capacity))
 	}
@@ -113,9 +113,9 @@ impl FBOW {
 		ZipValues::new(&self.0, &other.0)
 	}
 
-	/// Returns the similitude score between to image descriptors using L2 norm
-	pub fn score(&self, other: &Self, metric: Scoring) -> f64 {
-		match metric {
+	/// Returns the similitude score between to image descriptors
+	pub fn score(&self, other: &Self, metric: impl Into<Scoring>) -> f64 {
+		match metric.into() {
 			Scoring::L1 => self.score_l1(other),
 			Scoring::L2 => self.score_l2(other),
 			Scoring::ChiSquare => self.score_chi_squared(other),
@@ -126,9 +126,23 @@ impl FBOW {
 	}
 
 	/// Compute norm
-	pub fn norm(&self) -> f64 {
+	pub fn norm(&self, norm: LNorm) -> f64 {
+		 match norm {
+			LNorm::L1 => self.norm_l1(),
+			LNorm::L2 => self.norm_l2(),
+		}
+	}
+
+	/// Compute L1 norm
+	pub fn norm_l1(&self) -> f64 {
 		self.0.values()
-			.fold(0., |acc, &v| acc + (v * v) as f64)
+			.fold(0., |acc, &v| acc + v.abs() as f64)
+	}
+
+	/// Compute L2 norm
+	pub fn norm_l2(&self) -> f64 {
+		self.0.values()
+			.fold(0., |acc, &v| acc + ((v * v) as f64).sqrt())
 	}
 
 	/// Scale all scores by `scalar`
@@ -136,6 +150,13 @@ impl FBOW {
 		for value in self.0.values_mut() {
 			*value *= scalar;
 		}
+	}
+
+	fn score_generic<S: ScoringMethods>(&self, other: &Self) -> f64 {
+		let score = self.zip(other)
+			.map(|(u, v)| S::score(u, v))
+			.sum::<f64>();
+		S::finish(score)
 	}
 
 	/// Compute L1 score
@@ -156,6 +177,9 @@ impl FBOW {
 		score
 	}
 
+	/// Compute L2 score
+	/// 
+	/// Returns score in range [0..1]
 	pub fn score_l2(&self, other: &Self) -> f64 {
 		let score = self.zip(other)
 			.map(|(v1, v2)| (v1 * v2) as f64)
@@ -225,6 +249,7 @@ impl FBOW {
 		score // already scaled
 	}
 
+	/// Compute dot product
 	pub fn score_dot(&self, other: &Self) -> f64 {
 		let score = self.zip(other)
 			.fold(0., |score, (v1, v2)| score + ((v1 * v2) as f64));
@@ -232,13 +257,13 @@ impl FBOW {
 	}
 }
 
-impl AsRef<HashMap<u32, f32>> for FBOW {
+impl AsRef<HashMap<u32, f32>> for Bow {
 	fn as_ref(&self) -> &HashMap<u32, f32> {
 		&self.0
 	}
 }
 
-impl Serialize for FBOW {
+impl Serialize for Bow {
 	fn write_to(&self, mut dst: impl io::Write) -> io::Result<()> {
 		write_u32ish(self.len(), &mut dst)?;
 		let mut row_buffer = [0u8; size_of::<u32>() + size_of::<f32>()];
@@ -252,7 +277,25 @@ impl Serialize for FBOW {
 	}
 }
 
-impl SelfHash for FBOW {
+impl Deserialize for Bow {
+	fn read_from(mut src: impl io::Read) -> io::Result<Self> {
+		let len = read_u32ish(&mut src)?;
+		let mut hm = HashMap::with_capacity(len);
+
+		for _ in 0..len {
+			let key = read_u32(&mut src)?;
+			let weight = f32::from_bits(read_u32(&mut src)?);
+			let unique = hm.insert(key, weight).is_none();
+			#[cfg(debug_assertions)]
+			if !unique {
+				return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Duplicate key {key}")));
+			}
+		}
+		Ok(Self(hm))
+	}
+}
+
+impl SelfHash for Bow {
 	fn hash(&self) -> u64 {
 		let mut seed = 0u64;
 		for (key, value) in self.iter() {
@@ -274,9 +317,13 @@ impl SelfHash for FBOW {
 /// It is computed at the desired level
 #[cfg_attr(feature="python", pyo3::pyclass(mapping, eq, frozen, module="vfbow", extends=pyo3::types::PyDict))]
 #[derive(Clone, Debug, PartialEq)]
-pub struct FBOW2(HashMap<u32, Vec<u32>>);
+pub struct Features(HashMap<u32, Vec<u32>>);
 
-impl FBOW2 {
+impl Features {
+	pub(crate) fn new() -> Self {
+		Self(HashMap::new())
+	}
+	
 	pub fn with_capacity(capacity: usize) -> Self {
 		Self(HashMap::with_capacity(capacity))
 	}
@@ -301,13 +348,13 @@ impl FBOW2 {
 	}
 }
 
-impl AsRef<HashMap<u32, Vec<u32>>> for FBOW2 {
+impl AsRef<HashMap<u32, Vec<u32>>> for Features {
 	fn as_ref(&self) -> &HashMap<u32, Vec<u32>> {
 		&self.0
 	}
 }
 
-impl Serialize for FBOW2 {
+impl Serialize for Features {
 	fn write_to(&self, mut dst: impl io::Write) -> io::Result<()> {
 		write_u32ish(self.len(), &mut dst)?;
 		for (key, values) in self.0.iter() {
@@ -323,7 +370,7 @@ impl Serialize for FBOW2 {
 	}
 }
 
-impl Deserialize for FBOW2 {
+impl Deserialize for Features {
 	fn read_from(mut src: impl io::Read) -> io::Result<Self> {
 		let len = read_u32ish(&mut src)?;
 		let mut result = Self::with_capacity(len);
@@ -349,7 +396,7 @@ impl Deserialize for FBOW2 {
 	}
 }
 
-impl SelfHash for FBOW2 {
+impl SelfHash for Features {
 	fn hash(&self) -> u64 {
 		let mut seed = 0;
 		//TODO: I'm not 100% sure this is stable

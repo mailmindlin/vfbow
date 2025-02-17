@@ -1,7 +1,5 @@
 use std::fmt::{Display, Formatter};
 
-// pub(crate) type NodeId = u32;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DescriptorType {
 	Uint8 = 0,
@@ -27,14 +25,18 @@ impl From<DescriptorType> for u32 {
 	}
 }
 
+#[derive(Clone, Copy, Debug, thiserror::Error)]
+#[error("Invalid dtype: {0}")]
+pub struct InvalidDescriptorType(pub u32);
+
 impl TryFrom<u32> for DescriptorType {
-	type Error = ();//TODO: better error type
+	type Error = InvalidDescriptorType;
 
 	fn try_from(value: u32) -> Result<Self, Self::Error> {
 		match value {
 			0 => Ok(Self::Uint8),
 			5 => Ok(Self::Float32),
-			_ => Err(()),
+			_ => Err(InvalidDescriptorType(value)),
 		}
 	}
 }
@@ -62,15 +64,4 @@ impl DescriptorType {
 			Self::Float32 => "np.float32",
 		}
 	}
-}
-
-#[cfg_attr(feature="python", pyo3::pyclass(eq, eq_int, module="vfbow"))]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Scoring {
-	L1,
-	L2,
-	ChiSquare,
-	KL,
-	Bhattacharyya,
-	DotProduct,
 }
