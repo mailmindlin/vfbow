@@ -199,7 +199,7 @@ impl Bow {
 		};
 
 		// Result should be between 0 and 1 (inclusive)
-		debug_assert!((0. ..=1.).contains(&score));
+		debug_assert!((0. ..=1.).contains(&score), "L2 score out of bounds [0,1]: {score}");
 		score
 	}
 
@@ -219,7 +219,7 @@ impl Bow {
 		let score = 2. * score; // [0..1]
 
 		// Result should be between 0 and 1 (inclusive)
-		debug_assert!((0. ..=1.).contains(&score));
+		debug_assert!((0. ..=1.).contains(&score), "Chi-squared score out of bounds [0,1]: {score}");
 		score
 	}
 
@@ -248,16 +248,16 @@ impl Bow {
 	}
 
 	pub fn score_battacharyya(&self, other: &Self) -> f64 {
-		let score = self.zip(other)
-			.fold(0., |score, (v1, v2)| score + ((v1 * v2) as f64).sqrt());
-		score // already scaled
+		self.zip(other)
+			.fold(0., |score, (v1, v2)| score + ((v1 * v2) as f64).sqrt())
+		// already scaled
 	}
 
 	/// Compute dot product
 	pub fn score_dot(&self, other: &Self) -> f64 {
-		let score = self.zip(other)
-			.fold(0., |score, (v1, v2)| score + ((v1 * v2) as f64));
-		score // cannot scale
+		self.zip(other)
+			.fold(0., |score, (v1, v2)| score + ((v1 * v2) as f64))
+		// cannot scale
 	}
 }
 
