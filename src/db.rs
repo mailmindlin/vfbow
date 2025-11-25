@@ -121,7 +121,7 @@ pub struct QueryResult {
 }
 impl QueryResult {
 	fn new(id: usize, score: f64) -> Self {
-		assert!(score.is_finite());
+		assert!(score.is_finite(), "Score must be finite");
 		Self { id, score }
 	}
 }
@@ -130,15 +130,17 @@ impl QueryResult {
 impl Eq for QueryResult {}
 impl PartialOrd for QueryResult {
 	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-		// Note order of arguments: sorts in reverse order
-		other.score.partial_cmp(&self.score)
+		Some(self.cmp(other))
 	}
 }
 impl Ord for QueryResult {
 	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-		self.partial_cmp(other).unwrap()
+		// Note order of arguments: sorts in reverse order
+		let Some(result ) = other.score.partial_cmp(&self.score) else { unreachable!("Scores must be finite") };
+		result
 	}
 }
+
 impl Database {
 	/// Creates a database with the given vocabulary
 	/// 
