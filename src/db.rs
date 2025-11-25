@@ -222,7 +222,7 @@ impl Database {
 				let id = vec.len();
 				match fv {
 					Cow::Owned(f) => {
-						vec.push(std::mem::replace(f, Features::new()));
+						vec.push(std::mem::take(f));
 						*fv = Cow::Borrowed(vec.last().unwrap());
 					},
 					Cow::Borrowed(f) => {

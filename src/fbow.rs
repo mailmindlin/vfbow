@@ -320,14 +320,10 @@ impl SelfHash for Bow {
 /// 
 /// It is computed at the desired level
 #[cfg_attr(feature="python", pyo3::pyclass(mapping, eq, frozen, module="vfbow", extends=pyo3::types::PyDict))]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct Features(HashMap<u32, Vec<u32>>);
 
 impl Features {
-	pub(crate) fn new() -> Self {
-		Self(HashMap::new())
-	}
-	
 	pub fn with_capacity(capacity: usize) -> Self {
 		Self(HashMap::with_capacity(capacity))
 	}
