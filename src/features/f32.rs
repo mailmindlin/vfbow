@@ -12,7 +12,7 @@ use ndarray::ArrayView1;
 
 #[cfg(any(target_arch="x86_64", target_arch="x86"))]
 use crate::features::distance_l2::{l2_avx512_array, l2_avx_array, l2_sse_array};
-use crate::features::{shared::ToArray, Features};
+use crate::{features::{Features, shared::ToArray}, util::convert::convert_le};
 use crate::util::serde::{read_u32ish, write_u32ish};
 #[cfg(any(target_arch="aarch64", target_arch="arm"))]
 use super::distance_l2::{l2_neon_slice, l2_neon_array};
@@ -371,9 +371,9 @@ impl Deserialize for FeaturesF32 {
 		let features = (0..len)
 			.map::<std::io::Result<Vec<_>>, _>(|_| {
 				src.read_exact(&mut buf)?;
-				let value = buf.array_chunks::<{size_of::<f32>()}>()
-					.map(|c| f32::from_le_bytes(*c))
-					.collect::<Vec<f32>>();
+				let value = convert_le(&buf)
+					.unwrap()
+					.collect::<Vec<_>>();
 				Ok(value)
 			})
 			.collect::<Result<Vec<_>, _>>()?;

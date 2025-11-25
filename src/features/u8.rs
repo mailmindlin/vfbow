@@ -9,7 +9,7 @@ use numpy::Ix1;
 
 #[cfg(any(target_arch="aarch64", target_arch="arm"))]
 use super::distance_l1::{l1_neon_array, l1_neon_slice};
-use crate::{features::shared::{SliceQuery, ToArray}, Deserialize, Serialize};
+use crate::{Deserialize, Serialize, features::shared::ToArray, util::convert::convert_le};
 
 use super::{distance_l1::AccumulateL1, shared::{is_slice_packed, AlignQuery, FeatureDistance, FromArray, ValidZeroBits, L1}, DistanceQuery, FeatureType, Features, FeaturesGeneric};
 
@@ -48,12 +48,12 @@ impl<const N: usize> FromArray<u8> for Packed8Array<N> {
 		assert_eq!(array.len(), 8 * N);
 		let mut result = [0u64; N];
 		if let Some(slice) = array.as_slice() {
-			for (src, dst) in slice.array_chunks::<8>().zip(&mut result) {
-				//TODO: should we preserve the host order?
-				*dst = u64::from_le_bytes(*src);
+			//TODO: should we preserve the host order?
+			for (src, dst) in convert_le(slice).unwrap().zip(&mut result) {
+				*dst = src;
 			}
 		} else {
-			for (src, dst) in array.iter().copied().array_chunks::<8>().zip(&mut result) {
+			for (src, dst) in array.iter().copied().array_chunks::<{size_of::<u64>()}>().zip(&mut result) {
 				//TODO: should we preserve the host order?
 				*dst = u64::from_le_bytes(src);
 			}

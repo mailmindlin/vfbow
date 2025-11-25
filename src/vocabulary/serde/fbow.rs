@@ -5,7 +5,7 @@ use std::{collections::HashMap, ffi::CStr, io::{self, ErrorKind, Read}, str::Utf
 use arrayvec::ArrayString;
 use ndarray::ArrayView1;
 
-use crate::{vocabulary::{VocabularyBuilder, VocabularyParams}, Vocabulary};
+use crate::{Vocabulary, util::convert::convert_le, vocabulary::{VocabularyBuilder, VocabularyParams}};
 
 use super::{DescriptorType, ParseValidationMode, VocabularyReadOptions};
 
@@ -557,11 +557,8 @@ impl Vocabulary {
 					};
 					for (child, data) in block.children {
 						// Convert to f32
-						if !data.len().is_multiple_of(size_of::<f32>()) {
-							todo!("Good error");
-						}
-						let data = data.array_chunks::<{size_of::<f32>()}>()
-							.map(|chunk| f32::from_le_bytes(*chunk))
+						let data = convert_le(&data)
+							.expect("TODO: good error")
 							.collect::<Vec<_>>();
 						(if child_is_leaf(&child) { &mut leaves } else { &mut branches }).push((child, data));
 					}

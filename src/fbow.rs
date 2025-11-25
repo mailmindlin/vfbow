@@ -1,7 +1,7 @@
 
 use std::{collections::{hash_map::Entry, HashMap}, fmt::Debug, hash::Hash, io, iter::FusedIterator};
 
-use crate::util::{scoring::{LNorm, ScoringMethods}, serde::{read_u32, read_u32ish, write_u32, write_u32ish}, Deserialize, Scoring, SelfHash, Serialize};
+use crate::util::{Deserialize, Scoring, SelfHash, Serialize, convert::convert_le, scoring::{LNorm, ScoringMethods}, serde::{read_u32, read_u32ish, write_u32, write_u32ish}};
 
 /// Iterate over the shared keys of two HashMaps.
 /// 
@@ -383,9 +383,10 @@ impl Deserialize for Features {
 			let values = {
 				let mut values_bytes = vec![0u8; values_len * size_of::<u32>()];
 				src.read_exact(&mut values_bytes)?;
-				values_bytes
-					.array_chunks::<{size_of::<u32>()}>()
-					.map(|b| u32::from_le_bytes(*b))
+
+				convert_le(&values_bytes)
+					// Shouldn't be possible because valuse_bytes should be multiple of size_of::<u32>()
+					.unwrap()
 					.collect::<Vec<_>>()
 			};
 			if result.0.insert(key, values).is_some() {
