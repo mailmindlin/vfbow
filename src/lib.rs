@@ -1,4 +1,4 @@
-//! Rust library for Fast Bag-of-Words image retrieval
+#![doc = include_str!("../README.md")]
 #![feature(
 	duration_millis_float,
 	// Backtrace
