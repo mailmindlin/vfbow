@@ -69,6 +69,8 @@ macro_rules! dispatch {
 	};
 }
 
+/// This is really a compile-time test but I don't want to deal with that
+#[cfg(test)]
 #[test]
 fn dispatch_write() {
 	use std::io;
@@ -83,13 +85,5 @@ fn dispatch_write() {
 	    }
 	}
 }
-
-/// 
-/// impl<A: ToString, B: ToString> ToString for DispatchToString<A, B> {
-///     dispatch! {
-///         (A, B)
-///         fn to_string(&self) -> String;
-///     }
-/// }
 
 pub(super) use {dispatch, _dispatch_one, _dispatch_case};

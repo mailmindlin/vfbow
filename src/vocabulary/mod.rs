@@ -1,3 +1,4 @@
+//! Vocabulary data structure
 mod builder;
 mod serde;
 mod node;
@@ -215,20 +216,29 @@ impl Debug for Vocabulary {
 	}
 }
 
+/// Error during feature transformation
+/// 
+/// See [Vocabulary::transform], [Vocabulary::transform_one]
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum TransformError {
+	/// No input data
 	#[error("No input data")]
 	NoInputData,
+	/// Feature size does not match vocabulary
 	#[error("Transform features are of different size ({feature_len}) than the vocabulary ones ({vocab_flen})")]
 	SizeMismatch {
+		/// Vocabulary feature length
 		vocab_flen: usize,
+		/// Input feature length
 		feature_len: usize,
 	},
+	/// Feature type does not match vocabulary (e.g., u8 vs f32)
 	#[error("Transform features are of different type than the vocabulary ones")]
-	DtypeMismatch,
+	DTypeMismatch,
 }
 
 impl Vocabulary {
+	/// Print tree structure to stdout
 	pub fn print_tree(&self) {
 		let mut stack = vec![vec![&self.root]];
 		while let Some((current, s_prev)) = stack.split_last_mut() {
@@ -304,6 +314,7 @@ impl Vocabulary {
 		self.params.nblocks
 	}
 
+	/// Transform a single feature, returning the node
 	#[allow(private_bounds)]
 	pub fn transform_one<'a: 'b, 'b, T: FeatureType>(&'a self, feature: ndarray::ArrayView1<'b, T>, level: Option<usize>) -> Result<NodePath<'a>, TransformError> {
 		if feature.len() != self.params.desc_size {
@@ -346,6 +357,7 @@ impl Vocabulary {
 		Ok(NodePath::new(self, path, child_offset))
 	}
 
+	/// Transform multiple features, returning a Bag-of-Words and feature nodes
 	#[allow(private_bounds)]
 	pub fn transform<T: FeatureType>(&self, features: ndarray::ArrayView2<T>, level: Option<usize>) -> Result<(Bow, Features), TransformError> {
 		if features.nrows() == 0 {

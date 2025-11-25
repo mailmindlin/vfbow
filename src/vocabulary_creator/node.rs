@@ -4,8 +4,10 @@ use ndarray::{CowArray, Ix1};
 pub(super) struct TerminalLeaf<'a, T> {
 	/// Feature of this node
 	pub(super) feature: CowArray<'a, T, Ix1>,
-	/// index of the feature this node represent(only if leaf and it stop because not enough points to create a new leave.
+	/// Index of the feature this node represent(only if leaf and it stop because not enough points to create a new leave.
+	/// 
 	/// In case the node is a terminal point, but has many points beloging to its cluster, then, this is not set.
+	/// 
 	/// In other words, it is only used in nn search problems where L=-1
 	pub(super) feat_idx: u32,
 }

@@ -41,6 +41,9 @@ impl Serialize for Vocabulary {
 	}
 }
 
+/// How to handle validation errors when parsing a vocabulary
+/// 
+/// See [`VocabularyReadOptions`]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature="python", pyo3::pyclass(module="vfbow", eq))]
 pub enum ParseValidationMode {
@@ -52,15 +55,19 @@ pub enum ParseValidationMode {
 	Strict,
 }
 
+/// Options for reading a vocabulary
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature="python", derive(pyo3::FromPyObject))]
 #[non_exhaustive]
 pub struct VocabularyReadOptions {
+	/// How to handle nodes with too many children
 	pub too_many_children: ParseValidationMode,
+	/// How to handle inconsistent block data
 	pub inconsistent_block: ParseValidationMode,
 }
 
 impl VocabularyReadOptions {
+	/// Create options that applies the same mode to all validations
 	pub const fn all(mode: ParseValidationMode) -> Self {
 		Self {
 			too_many_children: mode,
@@ -94,7 +101,7 @@ impl Vocabulary {
 		match magic {
 			FBOW_MAGIC => Self::read_fbow(src, options.into()),
 			VFBOW_MAGIC => {
-				//save string
+				// Save string
 				let params = VocabularyParams::read_from(&mut src)?;
 				let features = FeaturesGeneric::read_from(src)?;
 				//TODO: consistency check

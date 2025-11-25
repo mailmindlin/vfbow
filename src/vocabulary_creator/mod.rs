@@ -3,7 +3,7 @@ mod feature;
 mod node;
 mod specialization;
 
-use std::{collections::VecDeque, mem, num::NonZeroUsize, sync::Mutex, u32};
+use std::{collections::VecDeque, mem, num::NonZeroUsize, sync::Mutex};
 
 use feature::FeatureInfo;
 use ndarray::{CowArray, Ix1};
@@ -59,14 +59,23 @@ fn empty_feature<'a, T: Clone>() -> CowArray<'a, T, Ix1> {
 	ndarray::aview1(&[]).into()
 }
 
+/// Errors that can occur when creating a vocabulary
+/// 
+/// See [VocabularyCreator::create]
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum CreateVocabularyError {
+	/// No features (the input list was empty)
 	#[error("No features")]
 	NoFeatures,
+	/// One of the provided arrays had zero columns
 	#[error("Feature 0 had no columns")]
 	EmptyFeature,
-	#[error("Node had too many children")]
-	TooManyChildren,
+
+	// /// One of the provided arrays had a different number of columns than the others
+	// #[error("Node had too many children")]
+	// TooManyChildren,
+
+	/// One of the provided arrays had a different number of columns than the others
 	#[error("One of the provided arrays has a different dimension than the others")]
 	ArrayDimMismatch,
 }
@@ -79,6 +88,7 @@ pub struct VocabularyCreator {
 impl VocabularyCreator {
 	const MAX_THREADS: usize = 100;
 
+	/// Construct with given parameters
 	pub fn new(params: VocabularyCreatorParams) -> Self {
 		Self { params }
 	}
@@ -93,10 +103,10 @@ impl VocabularyCreator {
 	/// features: vector of features. Each matrix represents the features of an image.
 	/// desc_name: Vocabulary descriptor name
 	pub fn create<T: VocabElement + Send + Sync>(&self, features: Vec<ndarray::Array2<T>>, desc_name: &str) -> Result<Vocabulary, CreateVocabularyError> {
-		//create for later usage
+		// Create for later usage
 		let features = FeatureInfo::create(features)?;
 
-		//set all indices for the first level
+		// Set all indices for the first level
 		let root_findices = (0..features.len())
 			.map(|i| i as u32)
 			.collect::<Vec<_>>();

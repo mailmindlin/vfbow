@@ -72,6 +72,7 @@ fn values_left<'a, K: Eq + Hash, V: Copy>(a: &'a HashMap<K, V>, b: &'a HashMap<K
 pub struct Bow(HashMap<u32, f32>);
 
 impl Bow {
+	/// Create empty bag of words with capacity (think: [`HashMap::with_capacity`])
 	pub fn with_capacity(capacity: usize) -> Self {
 		Self(HashMap::with_capacity(capacity))
 	}
@@ -81,6 +82,7 @@ impl Bow {
 		self.0.len()
 	}
 
+	/// Is this bag empty
 	pub fn is_empty(&self) -> bool {
 		self.0.is_empty()
 	}
@@ -203,6 +205,7 @@ impl Bow {
 		score
 	}
 
+	/// Compute Chi-squared score
 	pub fn score_chi_squared(&self, other: &Self) -> f64 {
 		let score = self.zip(other)
 			.fold(0., |score, (v1, v2)| {
@@ -223,6 +226,7 @@ impl Bow {
 		score
 	}
 
+	/// Compute KL-divergence score
 	pub fn score_kl(&self, other: &Self) -> f64 {
 		let log_eps: f64 = f64::EPSILON.ln();
 
@@ -247,13 +251,14 @@ impl Bow {
 		score
 	}
 
+	/// Compute Bhattacharyya score
 	pub fn score_battacharyya(&self, other: &Self) -> f64 {
 		self.zip(other)
 			.fold(0., |score, (v1, v2)| score + ((v1 * v2) as f64).sqrt())
 		// already scaled
 	}
 
-	/// Compute dot product
+	/// Compute the dot product between this and another bag of words
 	pub fn score_dot(&self, other: &Self) -> f64 {
 		self.zip(other)
 			.fold(0., |score, (v1, v2)| score + ((v1 * v2) as f64))
@@ -324,6 +329,7 @@ impl SelfHash for Bow {
 pub struct Features(HashMap<u32, Vec<u32>>);
 
 impl Features {
+	/// Constructor with initial capacity (think: [`HashMap::with_capacity`])
 	pub fn with_capacity(capacity: usize) -> Self {
 		Self(HashMap::with_capacity(capacity))
 	}
@@ -339,14 +345,17 @@ impl Features {
 		}
 	}
 	
+	/// Number of features
 	pub fn len(&self) -> usize {
 		self.0.len()
 	}
 
+	/// Is this empty
 	pub fn is_empty(&self) -> bool {
 		self.0.is_empty()
 	}
 
+	/// Clear features
 	pub fn clear(&mut self) {
 		self.0.clear();
 	}

@@ -1,3 +1,4 @@
+//! Rust library for Fast Bag-of-Words image retrieval
 #![feature(
 	duration_millis_float,
 	// Backtrace

@@ -4,6 +4,7 @@ use numpy::Ix1;
 
 use super::{FeatureType, Node, Vocabulary};
 
+/// A path to a node in the vocabulary tree
 #[derive(Clone)]
 pub struct NodePath<'a> {
     vocab: &'a Vocabulary,
@@ -14,6 +15,8 @@ impl<'a> NodePath<'a> {
     pub(super) fn new(vocab: &'a Vocabulary, path: Vec<&'a Node>, child_offset: Option<u32>) -> Self {
         Self { vocab, path, child_offset }
     }
+
+    /// Get a [NodeRef] which is the same as this [NodePath] but without ownership
     pub fn as_ref(&self) -> NodeRef<'_> {
         NodeRef {
             vocab: self.vocab,
