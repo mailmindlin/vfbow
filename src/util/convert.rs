@@ -26,7 +26,7 @@ fn convert_chunks<'a, T, const N: usize, F: 'a + Fn([u8; N]) -> T>(src: &'a [u8]
 
     Ok(
         chunks
-        .into_iter()
+        .iter()
         .copied()
         .map(f)
     )

@@ -120,7 +120,7 @@ impl<'a, T: DistFunc> InnerParams<'a, T> {
 	
 	fn recompute_centers(&self, assignments: &[Vec<FIndex>]) -> Vec<Array1<T>> {
 		assignments.iter()
-			.map(|assignment| T::mean_values(&self.features, &assignment))
+			.map(|assignment| T::mean_values(&self.features, assignment))
 			.collect()
 	}
 
@@ -198,7 +198,7 @@ impl<'a, T: DistFunc> InnerParams<'a, T> {
 				prev_hash = cur_hash;
 			};
 
-			self.assign_to_clusters(&feature_idxs, &center_features, &mut assignments /*,parent==0*/);
+			self.assign_to_clusters(feature_idxs, &center_features, &mut assignments /*,parent==0*/);
 
 			assert_eq!(center_features.len(), assignments.len());
 

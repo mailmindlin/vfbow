@@ -52,9 +52,9 @@ impl VocabElement for u8 {
 		// Try using u128
 		// TODO does this have any performance benefit?
 		if ncols.is_multiple_of(16) {
-			return align_of::<u128>();
+			align_of::<u128>()
 		} else if ncols.is_multiple_of(8) {
-			return align_of::<u64>();
+			align_of::<u64>()
 		} else {
 			align_of::<u8>()
 		}

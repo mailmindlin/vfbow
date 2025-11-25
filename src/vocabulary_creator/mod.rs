@@ -162,7 +162,7 @@ impl VocabularyCreator {
 			// Take feature out of leaf
 			let feature = mem::replace(feature, empty_feature());
 
-			match params.create_level(&findices) {
+			match params.create_level(findices) {
 				node::BranchNode::Terminal(children) => {
 					println!("\tTerminal children {}", children.len());
 					*node = Node::TerminalBranch(TerminalBranch {

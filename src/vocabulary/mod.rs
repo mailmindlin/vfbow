@@ -316,7 +316,7 @@ impl Vocabulary {
 
 	/// Transform a single feature, returning the node
 	#[allow(private_bounds)]
-	pub fn transform_one<'a: 'b, 'b, T: FeatureType>(&'a self, feature: ndarray::ArrayView1<'b, T>, level: Option<usize>) -> Result<NodePath<'a>, TransformError> {
+	pub fn transform_one<'a: 'b, 'b, T: FeatureType>(&'a self, feature: ndarray::ArrayView1<'b, T>, max_level: Option<usize>) -> Result<NodePath<'a>, TransformError> {
 		if feature.len() != self.params.desc_size {
 			return Err(TransformError::SizeMismatch {
 				feature_len: feature.len(),
@@ -325,7 +325,7 @@ impl Vocabulary {
 		}
 
 		//TODO: maybe let features convert it?
-		let mut path = Vec::with_capacity(level.unwrap_or(0));
+		let mut path = Vec::with_capacity(max_level.unwrap_or(0));
 
 		let q = self.features.query(feature);
 		let mut block = &self.root;
@@ -333,7 +333,7 @@ impl Vocabulary {
 		let mut cur_level = 0;//current level of recursion
 		//copy to another structure and add padding with zeros
 		let child_offset = loop {
-			if level == Some(cur_level) {
+			if max_level == Some(cur_level) {
 				// if reached level,save
 				break None;
 			}
@@ -359,7 +359,7 @@ impl Vocabulary {
 
 	/// Transform multiple features, returning a Bag-of-Words and feature nodes
 	#[allow(private_bounds)]
-	pub fn transform<T: FeatureType>(&self, features: ndarray::ArrayView2<T>, level: Option<usize>) -> Result<(Bow, Features), TransformError> {
+	pub fn transform<T: FeatureType>(&self, features: ndarray::ArrayView2<T>, max_level: Option<usize>) -> Result<(Bow, Features), TransformError> {
 		if features.nrows() == 0 {
 			return Err(TransformError::NoInputData);
 		}
@@ -387,7 +387,7 @@ impl Vocabulary {
 				// Find node with minimum distance
 				//given the current block, finds the node with minimum distance
 				let child_idx = q.min_index(block.base as _, block.n as _) as u32;
-				if level == Some(cur_level) {
+				if max_level == Some(cur_level) {
 					// if reached level,save
 					r2.insert(block.base, idx as _);
 				}
@@ -403,7 +403,7 @@ impl Vocabulary {
 					// println!("Found leaf {}", child_idx);
 					// Child is a leaf -> add weight
 					r.update(block.base + child_idx, 1.0);
-					if level.is_none_or(|level| cur_level < level) {
+					if max_level.is_none_or(|level| cur_level < level) {
 						// store level not reached, save now
 						r2.insert(block.base, idx as _);
 					}

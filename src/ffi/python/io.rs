@@ -134,10 +134,8 @@ impl KnownIOBase {
 			return Self::Unknown;
 		}
 		// We assume that there isn't any multiple inheritance
-		if check_instance!(obj is! raw_io_base) {
-			if check_instance!(obj is! file_io) {
-				return Self::FileIO;
-			}
+		if check_instance!(obj is! raw_io_base) && check_instance!(obj is! file_io) {
+			return Self::FileIO;
 		}
 		todo!()
 	}
@@ -230,7 +228,7 @@ impl<'a, 'py> PyIOBound<'a, 'py> {
 		} else {
 			self.inner.call_method1(read, (len,))?
 				.cast_into::<PyBytes>()
-				.map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e}")))
+				.map_err(|e| io::Error::other(format!("{e}")))
 		}
 	}
 
@@ -247,10 +245,7 @@ impl<'a, 'py> PyIOBound<'a, 'py> {
 		let number_bytes_written = self.inner.call_method1(consts::write(py), (arg,))?;
 
 		if number_bytes_written.is_none() {
-			return Err(io::Error::new(
-				io::ErrorKind::Other,
-				"write() returned None, expected number of bytes written",
-			));
+			return Err(io::Error::other("write() returned None, expected number of bytes written"));
 		}
 
 		number_bytes_written.extract().map_err(io::Error::from)

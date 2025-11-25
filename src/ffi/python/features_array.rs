@@ -113,7 +113,7 @@ impl<'py> PyFeaturesLike<'py> {
 	fn insert_dyn(&mut self, feature: &Bound<'py, PyUntypedArray>, index: usize) -> Result<(), ReadonlyArray2Error<'_>> {
 		let shape = feature.shape();
 		// Skip empty arrays
-		if shape.len() == 0 || shape.iter().any(|d| *d == 0) {
+		if shape.is_empty() || shape.contains(&0) {
 			// Skip empty arrays
 			// println!("Skip empty");
 			return Ok(());
@@ -152,7 +152,7 @@ impl<'py> PyFeaturesLike<'py> {
 					.map_err(|e| ReadonlyArray2Error::Py(e.into()))?;
 				self.insert_u8(as_u8, index)
 			},
-			_ => (|| Err(ReadonlyArray2Error::UnsuppportedDtype(dtype)))(),
+			_ => Err(ReadonlyArray2Error::UnsuppportedDtype(dtype)),
 		}
 	}
 }

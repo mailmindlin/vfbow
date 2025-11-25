@@ -184,7 +184,7 @@ fn parse_desc_name(desc_bytes: &[u8; 50], options: &ReadFbowOptions) -> io::Resu
 			Ok(str) => {
 				let res = ArrayString::from(str)
 					.unwrap(); // I don't think this can fail
-				return Ok(res);
+				Ok(res)
 			},
 			Err(e) => handle_utf8(e),
 		},
@@ -394,7 +394,7 @@ impl Block {
 				info
 			};
 
-			info.into_iter().map(|[id_or_childblock, weight]| {
+			info.iter().map(|[id_or_childblock, weight]| {
 				let id_or_childblock = u32::from_le_bytes(*id_or_childblock);
 				let weight = f32::from_le_bytes(*weight);
 				BlockNodeInfo { id_or_childblock, weight }
@@ -406,7 +406,7 @@ impl Block {
 			let features_start = convert_offset(params.feature_off_start);
 			let feature_len_padded = convert_offset(params.desc_size_bytes_wp);
 			let features_len = feature_len_padded * (n as usize);
-			let features = (&data[features_start..features_start+features_len])
+			let features = data[features_start..features_start+features_len]
 				.chunks_exact(feature_len_padded);
 			assert_eq!(features.len(), n as usize);
 
@@ -516,7 +516,7 @@ impl Vocabulary {
 				v_params.m_k = params.m_k;
 				v_params.desc_size = params.desc_size as _;
 
-				return Ok(builder.finish(v_params))
+				Ok(builder.finish(v_params))
 			},
 			DescriptorType::Float32 => {
 				let nblocks = blocks.len();
@@ -582,7 +582,7 @@ impl Vocabulary {
 				v_params.m_k = params.m_k;
 				v_params.desc_size = params.desc_size as _;
 
-				return Ok(builder.finish(v_params))
+				Ok(builder.finish(v_params))
 			},
 		}
 	}
