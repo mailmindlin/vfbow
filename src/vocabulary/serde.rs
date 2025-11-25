@@ -29,7 +29,7 @@ impl Serialize for Vocabulary {
 			if let Some(children) = &node.children {
 				write_u32ish(children.len(), &mut dst)?;
 				for child in children.iter() {
-					//TODO
+					todo!("Write child node reference");
 				}
 			} else {
 				write_u32ish(0, &mut dst)?;

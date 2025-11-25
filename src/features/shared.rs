@@ -13,6 +13,7 @@ pub(super) struct L2;
 impl Metric for L2 {}
 
 pub(super) trait FeatureDistance {
+	#[allow(private_bounds)]
 	type Metric: Metric;
 	type Distance: DistanceOrd;
 	/// We return u32 here because I assume the descriptors are ≤ 2^29 bytes long

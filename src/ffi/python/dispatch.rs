@@ -34,7 +34,7 @@ macro_rules! _dispatch_one {
 /// - Empty method signatures (like defining a trait)
 /// 
 /// ## Example
-/// ```
+/// ```ignore
 /// use std::io;
 /// enum DispatchWrite<A: io::Write, B: io::Write> { A(A), B(B) }
 /// 
@@ -67,6 +67,21 @@ macro_rules! dispatch {
 			)*
 		}
 	};
+}
+
+#[test]
+fn dispatch_write() {
+	use std::io;
+	#[allow(unused)]
+	enum DispatchWrite<A: io::Write, B: io::Write> { A(A), B(B) }
+
+	impl<A: io::Write, B: io::Write> io::Write for DispatchWrite<A, B> {
+	    dispatch! {
+	        (A, B)
+	        fn write(&mut self, buf: &[u8]) -> io::Result<usize>;
+	        fn flush(&mut self) -> io::Result<()>;
+	    }
+	}
 }
 
 /// 

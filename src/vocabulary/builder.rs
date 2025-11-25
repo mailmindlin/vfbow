@@ -103,7 +103,7 @@ impl<T: FeatureType> VocabularyBuilder<T> {
 		}
 	}
 
-	pub(crate) fn root(&mut self) -> NodeBuilder<T> {
+	pub(crate) fn root(&mut self) -> NodeBuilder<'_, T> {
 		NodeBuilder { shared: &self.shared, node: Some(&mut self.root) }
 	}
 
