@@ -46,6 +46,7 @@ type Packed8Array<const N: usize> = [u64; N];
 impl<const N: usize> FromArray<u8> for Packed8Array<N> {
 	fn from_array<'a>(dst: &'a mut MaybeUninit<Self>, array: ArrayView1<'_, u8>) -> &'a mut Self {
 		assert_eq!(array.len(), 8 * N);
+
 		let mut result = [0u64; N];
 		if let Some(slice) = array.as_slice() {
 			//TODO: should we preserve the host order?
@@ -64,9 +65,9 @@ impl<const N: usize> FromArray<u8> for Packed8Array<N> {
 	fn from_slice<'a>(dst: &'a mut MaybeUninit<Self>, slice: &[u8]) -> &'a mut Self {
 		assert_eq!(slice.len(), 8 * N);
 		let mut result = [0u64; N];
-		for (src, dst) in slice.array_chunks::<8>().zip(&mut result) {
-			//TODO: should we preserve the host order?
-			*dst = u64::from_le_bytes(*src);
+		//TODO: should we preserve the host order?
+		for (src, dst) in convert_le(slice).unwrap().zip(&mut result) {
+			*dst = src;
 		}
 		dst.write(result)
 	}
