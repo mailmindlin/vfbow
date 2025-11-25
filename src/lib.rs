@@ -1,12 +1,9 @@
 #![feature(
-	let_chains, never_type,
-	round_char_boundary, unsigned_is_multiple_of,
 	duration_millis_float,
 	// Backtrace
-	box_as_ptr, panic_backtrace_config, backtrace_frames,
-	array_chunks, iter_array_chunks, slice_as_chunks,
+	iter_array_chunks,
 	// For efficient serialization
-	can_vector, write_all_vectored,
+	can_vector,
 	maybe_uninit_as_bytes, maybe_uninit_write_slice, maybe_uninit_fill,
 )]
 // AVX-512
