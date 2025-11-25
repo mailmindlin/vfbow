@@ -135,7 +135,7 @@ impl<E: Sized + ValidZeroBits + Copy, const N: usize, const F: usize> FromArray<
 
 			if N * size_of::<E>() != F {
 				// Pad with zeros to ensure rust's safety guarantees
-				MaybeUninit::fill(&mut dst_u8[F..], 0);
+				dst_u8[F..].write_filled(0);
 			}
 			unsafe { dst.assume_init_mut() }
 		}
@@ -158,12 +158,12 @@ impl<E: Sized + ValidZeroBits + Copy, const N: usize, const F: usize> FromArray<
 
 		if N * size_of::<E>() == F {
 			// Fast path: we just do a memcpy
-			MaybeUninit::copy_from_slice(dst_u8, slice);
+			dst_u8.write_copy_of_slice(slice);
 		} else {
 			// Pad with zeros to ensure rust's safety guarantees
 			// Fast-enough path: we do a memcpy + memset
-			MaybeUninit::copy_from_slice(&mut dst_u8[..F], slice);
-			MaybeUninit::fill(&mut dst_u8[F..], 0);
+			dst_u8[..F].write_copy_of_slice(slice);
+			dst_u8[F..].write_filled(0);
 		}
 		unsafe { dst.assume_init_mut() }
 	}
