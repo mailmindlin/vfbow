@@ -17,7 +17,15 @@ struct BuilderShared<T: FeatureType> {
 impl<T: FeatureType> BuilderShared<T> {
 	fn next_id(&self, n: usize) -> u32 {
 		let result = self.next_id.get();
-		self.next_id.set(result + (n as u32));
+		// Overflow checks
+		let next_id = result.checked_add(
+			n.try_into()
+			// N is too big to fit in u32
+			.unwrap()
+		)
+			// result + n overflows u32
+		.unwrap();
+		self.next_id.set(next_id);
 		result
 	}
 }
