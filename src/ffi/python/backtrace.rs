@@ -63,7 +63,7 @@ impl PanicBacktrace  {
 	pub(super) fn catch_backtrace<F: Send + UnwindSafe + FnOnce() -> R, R: Send>(py: Python, callback: F) -> PyResult<R> {
 		// Do this while we have the GIL, should be slightly safer
 		// let hook = Self::install();
-		match py.allow_threads(|| panic::catch_unwind(callback)) {
+		match py.detach(|| panic::catch_unwind(callback)) {
 			Ok(r) => Ok(r),
 			Err(payload) => {
 				// let backtrace = hook.take();

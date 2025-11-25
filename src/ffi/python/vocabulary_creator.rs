@@ -48,7 +48,7 @@ impl VocabularyCreatorParams {
 
     /// Hash
 	fn __hash__(&self, py: Python<'_>) -> u64 {
-		py.allow_threads(|| {
+		py.detach(|| {
 			let mut hasher = DefaultHasher::new();
 			self.hash(&mut hasher);
 			hasher.finish()
@@ -83,7 +83,7 @@ impl PyVocabularyCreator {
             .map(|arr| arr.to_owned_array())
             .collect::<Vec<_>>();
 
-        py.allow_threads(|| {
+        py.detach(|| {
             match vc.create::<T>(features, desc_name) {
                 Ok(voc) => Ok(voc),
                 Err(e) => Err(PyErr::new::<PyRuntimeError, _>(format!("Error creating vocabulary: {e}"))),

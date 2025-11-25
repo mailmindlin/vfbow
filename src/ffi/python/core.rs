@@ -150,7 +150,7 @@ impl PyDictView {
 		}
 
 		let base = self.base.as_ref();
-		py.allow_threads(|| {
+		py.detach(|| {
 			Ok(match base {
 				Either::Left(b) => {
 					let b = b.as_ref();
@@ -290,7 +290,7 @@ impl PyDictView {
 					},
 					ViewMode::Values => {
 						let key = key.extract::<f32>()?;
-						py.allow_threads(|| {
+						py.detach(|| {
 							b.values()
 								.any(|value| *value == key)
 						})
@@ -313,7 +313,7 @@ impl PyDictView {
 					},
 					ViewMode::Values => {
 						let key = key.extract::<Vec<u32>>()?;
-						py.allow_threads(|| {
+						py.detach(|| {
 							f.values()
 							//TODO: compare sorted?
 								.any(|value| value == &key)
@@ -496,7 +496,7 @@ impl SortMode {
 impl Bow {
 	/// True if not empty
 	fn __bool__(&self) -> bool {
-		self.len() != 0
+		!self.is_empty()
 	}
 
 	/// Return number of elements in Bow
@@ -536,7 +536,7 @@ impl Bow {
 	#[pyo3(signature = (sorted = None, numpy = false))]
 	fn values<'py>(&self, py: Python<'py>, sorted: Option<SortMode>, numpy: bool) -> Either<Vec<f32>, Bound<'py, PyArray1<f32>>> {
 		let hm = self.as_ref();
-		let result = py.allow_threads(|| {
+		let result = py.detach(|| {
 			if let Some(SortMode::Keys(..)) = sorted {
 				let mut result = hm
 					.iter()
@@ -599,7 +599,7 @@ impl Bow {
 	/// Compute the score between this and some other bag of words
 	#[pyo3(name="score", signature = (other, metric = Scoring::L2))]
 	fn py_score(&self, py: Python<'_>, other: &Bow, metric: Scoring) -> f64 {
-		py.allow_threads(|| {
+		py.detach(|| {
 			self.score(other, metric)
 		})
 	}
@@ -607,7 +607,7 @@ impl Bow {
 	/// Compute the Ln norm of all the scores
 	#[pyo3(name="norm", signature = (norm = LNorm::L2))]
 	fn py_norm(&self, py: Python<'_>, norm: LNorm) -> f64 {
-		py.allow_threads(|| self.norm(norm))
+		py.detach(|| self.norm(norm))
 	}
 
 	/// Normalize such that `fbow.normalize().norm() == 1.0`
@@ -615,7 +615,7 @@ impl Bow {
 	fn py_normalize<'py>(me: Bound<'py, Self>, py: Python<'py>, norm: LNorm) -> PyResult<Bound<'py, Self>> {
 		let this = me.get();
 
-		let r = py.allow_threads(|| {
+		let r = py.detach(|| {
 			let norm = this.norm(norm);
 			if (norm - 1.) < 1e-8 {
 				// Identity
@@ -704,7 +704,7 @@ impl IntersectFeatures {
 			},
 		};
 
-		let (node_ids, cap_count) = py.allow_threads(|| {
+		let (node_ids, cap_count) = py.detach(|| {
 			let keys = match (&a_ref, &b_ref) {
 				(Raw::Features(a_ref), Raw::Features(b_ref)) => {
 					// Zip keys
@@ -777,7 +777,7 @@ impl IntersectFeatures {
 		let features = self.features.iter()
 			.map(|f| f.bind(py).get().as_ref())
 			.collect::<Vec<_>>();
-		py.allow_threads(|| {
+		py.detach(|| {
 			self.node_ids
 				.iter()
 				.map(|node_id| {
@@ -814,7 +814,7 @@ enum FeaturesLike<'py> {
 #[pymethods]
 impl Features {
 	fn __bool__(&self) -> bool {
-		self.len() > 0
+		!self.is_empty()
 	}
 	fn __len__(&self) -> usize {
 		self.len()

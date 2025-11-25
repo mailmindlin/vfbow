@@ -48,7 +48,7 @@ impl PyVocabulary {
 			Some(level) => VocabularyReadOptions::all(level),
 		};
 
-		let res = py.allow_threads(|| {
+		let res = py.detach(|| {
 			Vocabulary::read_from(src, options)
 				.map(|v| v.into())
 		})?;
@@ -65,7 +65,7 @@ impl PyVocabulary {
 		};
 
 		let mut bytes = src.as_bytes();
-		let res = py.allow_threads(|| {
+		let res = py.detach(|| {
 			Vocabulary::read_from(&mut bytes, options)
 				.map(|v| v.into())
 		})?;
@@ -74,16 +74,16 @@ impl PyVocabulary {
 
 	/// Write to file
 	fn write_to(&self, py: Python<'_>, dst: PyWrite) -> PyResult<()> {
-		let res = py.allow_threads(|| {
+		py.detach(|| {
 			let buffered = BufWriter::new(dst);
 			<Vocabulary as Serialize>::write_to(self, buffered)
 		})?;
-		Ok(res)
+		Ok(())
 	}
 
 	/// Serialize to bytes
 	fn to_bytes(&self, py: Python<'_>) -> PyResult<Vec<u8>> {
-		py.allow_threads(|| {
+		py.detach(|| {
 			let mut bytes = Vec::new();
 			<Vocabulary as Serialize>::write_to(self, &mut bytes)?;
 			Ok(bytes)
@@ -146,7 +146,7 @@ impl PyVocabulary {
 		};
 
 		fn transform_inner<'py, T: numpy::Element + FeatureType + Send + Sync + RefUnwindSafe>(py: Python<'py>, vocab: &Vocabulary, features: CowArray<T, Ix2>, level: Option<usize>) -> Result<(Bow, Features), TransformError> {
-			py.allow_threads(|| vocab.transform::<T>(features.view(), level))
+			py.detach(|| vocab.transform::<T>(features.view(), level))
 		}
 
 		let result = match features {
@@ -197,7 +197,7 @@ impl Database {
 						.unwrap();
 					let feature = py_feature.as_array();
 
-					let (id, _, _) = py.allow_threads(|| {
+					let (id, _, _) = py.detach(|| {
 						db.insert_transform(feature)
 					})?;
 					id
@@ -212,7 +212,7 @@ impl Database {
 					.map(|feature| feature.as_array())
 					.collect::<Vec<_>>();
 				
-				py.allow_threads(|| {
+				py.detach(|| {
 					// Transform features in parallel
 					let vocab = db.vocabulary();
 					let levels = db.direct_index_levels();
@@ -226,8 +226,7 @@ impl Database {
 								.into_iter()
 								.map(|(v, f)| {
 									let mut f = Cow::Owned(f);
-									let r = db.insert(&v, &mut f);
-									r
+									db.insert(&v, &mut f)
 								})
 								.collect::<Vec<_>>()
 						})
@@ -260,7 +259,7 @@ impl Database {
 
 	#[pyo3(name="insert")]
 	fn py_insert<'py>(&mut self, py: Python<'py>, bow: &Bow, features: &Features) -> usize {
-		py.allow_threads(|| {
+		py.detach(|| {
 			let mut fv = Cow::Borrowed(features);
 			self.insert(bow, &mut fv)
 		})
@@ -284,7 +283,7 @@ impl Database {
 			None => None,
 		};
 
-		let r = py.allow_threads(|| self.query(query, scoring, max_results, max_id));
+		let r = py.detach(|| self.query(query, scoring, max_results, max_id));
 		PyDbQueryResults::new(r)
 	}
 
@@ -318,7 +317,7 @@ impl PyDbQueryResults {
 impl PyDbQueryResults {
 	/// Get entry IDs (in ascending-score order)
 	fn ids(&self, py: Python) -> Vec<usize> {
-		py.allow_threads(|| {
+		py.detach(|| {
 			self.results
 				.iter()
 				.map(|r| r.id)
@@ -326,7 +325,7 @@ impl PyDbQueryResults {
 		})
 	}
 	fn scores(&self, py: Python) -> Vec<f64> {
-		py.allow_threads(|| {
+		py.detach(|| {
 			self.results
 				.iter()
 				.map(|r| r.score)
