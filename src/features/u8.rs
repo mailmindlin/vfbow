@@ -1,8 +1,8 @@
 use std::{borrow::Cow, io::{IoSliceMut, Write}, mem::MaybeUninit};
 #[cfg(target_arch="aarch64")]
-use std::arch::{is_aarch64_feature_detected, aarch64::uint8x16_t};
+use std::arch::aarch64::uint8x16_t;
 #[cfg(target_arch="arm")]
-use std::arch::{is_arm_feature_detected as is_aarch64_feature_detected, arm::uint8x16_t};
+use std::arch::arm::uint8x16_t;
 
 use ndarray::{aview1, Array1, ArrayView1, CowArray};
 use numpy::Ix1;
@@ -384,7 +384,7 @@ impl Features<u8> for FeaturesU8 {
 		assert_ne!(feature_len, 0, "Zero-size feature");
 
 		// Select storage
-		let res = match feature_len {
+		match feature_len {
 			64 => Self::Array64(Vec::with_capacity(capacity)),
 			
 			// Specialize for AKAZE
@@ -403,9 +403,7 @@ impl Features<u8> for FeaturesU8 {
 					data: Vec::with_capacity(capacity),
 				}
 			}
-		};
-		// println!("\tSelected storage {}", res.storage());
-		res
+		}
 	}
 	fn insert<'a>(&mut self, features: impl ExactSizeIterator<Item = ArrayView1<'a, u8>>) {
 		fn insert_array<'a, E: FromArray<u8>>(vec: &mut Vec<E>, features: impl ExactSizeIterator<Item = ArrayView1<'a, u8>>) {
@@ -483,8 +481,7 @@ impl Features<u8> for FeaturesU8 {
 			FeaturesU8::Array61(vec) => ToArray::as_slice(vec.get(index)?),
 			FeaturesU8::Generic { feature_len, data } => {
 				let chunk = data.chunks_exact(*feature_len)
-					.skip(index)
-					.next()?;
+					.nth(index)?;
 				ToArray::as_slice(chunk)
 			},
 		};
@@ -504,14 +501,14 @@ impl From<FeaturesU8> for FeaturesGeneric {
 impl FeatureType for u8 {
 	type FeaturesSpec = FeaturesU8;
 	
-	fn extract<'a>(generic: &'a FeaturesGeneric) -> Option<&'a Self::FeaturesSpec> {
+	fn extract(generic: &FeaturesGeneric) -> Option<&Self::FeaturesSpec> {
 		match generic {
 			FeaturesGeneric::Uint8(r) => Some(r),
 			_ => None,
 		}
 	}
 	
-	fn extract_mut<'a>(generic: &'a mut FeaturesGeneric) -> Option<&'a mut Self::FeaturesSpec> {
+	fn extract_mut(generic: &mut FeaturesGeneric) -> Option<&mut Self::FeaturesSpec> {
 		match generic {
 			FeaturesGeneric::Uint8(r) => Some(r),
 			_ => None,

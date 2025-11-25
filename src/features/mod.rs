@@ -10,6 +10,7 @@ mod distance_l2;
 mod u8;
 mod f32;
 mod shared;
+mod arch;
 
 pub(crate) trait DistanceQuery {
 	/// Compute the closest distance
@@ -35,8 +36,8 @@ pub(crate) trait Features<E: 'static>: Into<FeaturesGeneric> + Serialize + Deser
 
 pub(crate) trait FeatureType: Sized + 'static {
 	type FeaturesSpec: Features<Self>;
-	fn extract<'a>(generic: &'a FeaturesGeneric) -> Option<&'a Self::FeaturesSpec>;
-	fn extract_mut<'a>(generic: &'a mut FeaturesGeneric) -> Option<&'a mut Self::FeaturesSpec>;
+	fn extract(generic: &FeaturesGeneric) -> Option<&Self::FeaturesSpec>;
+	fn extract_mut(generic: &mut FeaturesGeneric) -> Option<&mut Self::FeaturesSpec>;
 }
 
 pub(crate) type TypedFeatures<T> = <T as FeatureType>::FeaturesSpec;
@@ -87,12 +88,12 @@ impl FeaturesGeneric {
 	}
 
 	pub(crate) fn get<'a, T: FeatureType>(&'a self, index: usize) -> Option<CowArray<'a, T, Ix1>> {
-		let me = T::extract(&self)?;
+		let me = T::extract(self)?;
 		me.get(index)
 	}
 
 	/// Insert features
-	pub(crate) fn insert<'a, T: FeatureType>(&mut self, features: impl ExactSizeIterator<Item = ArrayView1<'a, T>>) where T: 'a {
+	pub(crate) fn insert<'a, T: FeatureType + 'a>(&mut self, features: impl ExactSizeIterator<Item = ArrayView1<'a, T>>) {
 		let Some(typed) = T::extract_mut(self) else {
 			panic!("Inconsistent feature type: tried to insert {} into {self:?}", any::type_name::<T>());
 		};

@@ -36,7 +36,7 @@ impl<'a, K: Eq + Hash, V: Copy> Iterator for ZipValues<'a, K, V> {
 	}
 
 	fn next(&mut self) -> Option<Self::Item> {
-		while let Some((key, &value1)) = self.items.next() {
+		for (key, &value1) in self.items.by_ref() {
 			if let Some(&value2) = self.lookup.get(key) {
 				return Some((value1, value2));
 			}
@@ -81,13 +81,17 @@ impl Bow {
 		self.0.len()
 	}
 
+	pub fn is_empty(&self) -> bool {
+		self.0.is_empty()
+	}
+
 	/// Clear bag
 	pub fn clear(&mut self) {
 		self.0.clear();
 	}
 
 	/// Iterate over items
-	pub fn iter(&self) -> impl Iterator<Item = (u32, f32)> + ExactSizeIterator + FusedIterator + Debug + Clone + '_ {
+	pub fn iter(&self) -> impl ExactSizeIterator<Item = (u32, f32)> + FusedIterator + Debug + Clone + '_ {
 		self.0.iter()
 			.map(|(k, v)| (*k, *v))
 	}
@@ -173,7 +177,7 @@ impl Bow {
 		let score = -score / 2.0;
 
 		// Result should be between 0 and 1 (inclusive)
-		debug_assert!(0. <= score && score <= 1.);
+		debug_assert!((0. ..=1.).contains(& score));
 		score
 	}
 
@@ -195,7 +199,7 @@ impl Bow {
 		};
 
 		// Result should be between 0 and 1 (inclusive)
-		debug_assert!(0. <= score && score <= 1.);
+		debug_assert!((0. ..=1.).contains(&score));
 		score
 	}
 
@@ -215,7 +219,7 @@ impl Bow {
 		let score = 2. * score; // [0..1]
 
 		// Result should be between 0 and 1 (inclusive)
-		debug_assert!(0. <= score && score <= 1.);
+		debug_assert!((0. ..=1.).contains(&score));
 		score
 	}
 
@@ -341,6 +345,10 @@ impl Features {
 	
 	pub fn len(&self) -> usize {
 		self.0.len()
+	}
+
+	pub fn is_empty(&self) -> bool {
+		self.0.is_empty()
 	}
 
 	pub fn clear(&mut self) {

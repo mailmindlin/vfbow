@@ -149,7 +149,7 @@ impl Database {
 	///   node id to store in the direct index when adding images
 	pub fn new(vocabulary: Arc<Vocabulary>, use_direct: bool, levels: usize) -> Self {
 		let mut inverted = Vec::new();
-		inverted.resize_with(vocabulary.num_features(), || InvertedEntries::new());
+		inverted.resize_with(vocabulary.num_features(), InvertedEntries::new);
 		Self {
 			vocabulary,
 			levels,

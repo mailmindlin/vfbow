@@ -1,6 +1,7 @@
 #![feature(
 	duration_millis_float,
 	// Backtrace
+	// box_as_ptr, panic_backtrace_config, backtrace_frames,
 	iter_array_chunks,
 	// For efficient serialization
 	can_vector,
@@ -8,7 +9,7 @@
 )]
 // AVX-512
 #![cfg_attr(target_arch="x86_64", feature(stdarch_x86_avx512, avx512_target_feature))]
-#[warn(missing_docs)]
+#![warn(missing_docs)]
 
 mod vocabulary_creator;
 pub mod vocabulary;
