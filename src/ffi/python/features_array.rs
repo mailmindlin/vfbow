@@ -81,7 +81,7 @@ impl<'py> PyFeaturesLike<'py> {
 		}
 	}
 
-	fn insert_u8(&mut self, value: &Bound<'py, PyArray2<u8>>, index: usize) -> Result<(), ReadonlyArray2Error> {
+	fn insert_u8(&mut self, value: &Bound<'py, PyArray2<u8>>, index: usize) -> Result<(), ReadonlyArray2Error<'_>> {
 		let value = py_read_array(value, index)?;
 		match self {
 			Self::Empty => {
@@ -95,7 +95,7 @@ impl<'py> PyFeaturesLike<'py> {
 			_ => Err(ReadonlyArray2Error::InconsistentDtype),
 		}
 	}
-	fn insert_f32(&mut self, value: &Bound<'py, PyArray2<f32>>, index: usize) -> Result<(), ReadonlyArray2Error> {
+	fn insert_f32(&mut self, value: &Bound<'py, PyArray2<f32>>, index: usize) -> Result<(), ReadonlyArray2Error<'_>> {
 		let value = py_read_array(value, index)?;
 		match self {
 			Self::Empty => {
@@ -110,7 +110,7 @@ impl<'py> PyFeaturesLike<'py> {
 		}
 	}
 
-	fn insert_dyn(&mut self, feature: &Bound<'py, PyUntypedArray>, index: usize) -> Result<(), ReadonlyArray2Error> {
+	fn insert_dyn(&mut self, feature: &Bound<'py, PyUntypedArray>, index: usize) -> Result<(), ReadonlyArray2Error<'_>> {
 		let shape = feature.shape();
 		// Skip empty arrays
 		if shape.len() == 0 || shape.iter().any(|d| *d == 0) {

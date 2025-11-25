@@ -14,7 +14,7 @@ impl<'a> NodePath<'a> {
     pub(super) fn new(vocab: &'a Vocabulary, path: Vec<&'a Node>, child_offset: Option<u32>) -> Self {
         Self { vocab, path, child_offset }
     }
-    pub fn as_ref(&self) -> NodeRef {
+    pub fn as_ref(&self) -> NodeRef<'_> {
         NodeRef {
             vocab: self.vocab,
             path: &self.path,
@@ -58,7 +58,8 @@ impl<'a> NodeRef<'a> {
             }
         }
     }
-    pub fn words<T: FeatureType>(&self) -> Vec<CowArray<T, Ix1>> {
+    #[allow(private_bounds)]
+    pub fn words<T: FeatureType>(&'_ self) -> Vec<CowArray<'_, T, Ix1>> {
         let node = *self.path.last().unwrap();
         match self.child_offset {
             Some(child_offset) => {

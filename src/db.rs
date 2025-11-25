@@ -206,7 +206,7 @@ impl Database {
 		}
 	}
 
-	pub fn insert_transform<T: VocabElement>(&mut self, features: ArrayView2<T>) -> Result<(usize, Bow, Cow<Features>), TransformError> {
+	pub fn insert_transform<T: VocabElement>(&mut self, features: ArrayView2<T>) -> Result<(usize, Bow, Cow<'_, Features>), TransformError> {
 		let (bow, bow2) = self.vocabulary.transform(features, Some(self.levels))?;
 		let mut fv = Cow::Owned(bow2);
 		let entry_id = self.insert(&bow, &mut fv);
