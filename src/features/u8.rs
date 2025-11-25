@@ -33,7 +33,7 @@ impl FeatureDistance for [uint8x16_t] {
 	type Distance = u32;
 
 	fn distance(&self, other: &Self) -> Self::Distance {
-		debug_assert!(is_aarch64_feature_detected!("neon"));
+		super::arch::debug_ensure_neon();
 		unsafe {
 			l1_neon_slice(self, other)
 		}
@@ -201,7 +201,7 @@ impl<const N: usize, const F: usize> FeatureDistance for TransmuteArray<std::arc
 	type Metric = L1;
 	type Distance = u32;
 	fn distance(&self, other: &Self) -> u32 {
-		debug_assert!(is_aarch64_feature_detected!("neon"));
+		super::arch::debug_ensure_neon();
 		unsafe {
 			l1_neon_array::<N>(&self.0, &other.0)
 		}

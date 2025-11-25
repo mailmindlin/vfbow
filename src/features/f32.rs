@@ -2,7 +2,7 @@
 use std::arch::{is_aarch64_feature_detected, aarch64::float32x4_t};
 #[cfg(target_arch="arm")]
 use std::arch::{is_arm_feature_detected, arm::float32x4_t};
-#[cfg(any(target_arch="x86_64"))]
+#[cfg(target_arch="x86_64")]
 use std::arch::{is_x86_feature_detected, x86_64::{__m128, __m256, __m512}};
 #[cfg(target_arch="x86")]
 use std::arch::{is_x86_feature_detected, x86::{__m128, __m256, __m512}};
@@ -77,7 +77,8 @@ impl FeatureDistance for [float32x4_t] {
 	type Distance = f32;
 
 	fn distance(&self, other: &Self) -> Self::Distance {
-		debug_assert!(is_aarch64_feature_detected!("neon"));
+		super::arch::debug_ensure_neon();
+
 		unsafe {
 			l2_neon_slice(self, other)
 		}
@@ -219,7 +220,7 @@ impl<const N: usize> FeatureDistance for TransmuteArray<float32x4_t, N> {
 	type Distance = f32;
 	fn distance(&self, other: &Self) -> f32 {
 		//TODO: include detection on AccumulateL1Unsafe?
-		debug_assert!(is_aarch64_feature_detected!("neon"));
+		super::arch::debug_ensure_neon();
 		unsafe {
 			l2_neon_array::<N>(&self.0, &other.0)
 		}
@@ -489,8 +490,7 @@ impl super::Features<f32> for FeaturesF32 {
 			Self::Array64(vec) => ToArray::as_slice(vec.get(index)?),
 			Self::Generic { feature_len, data } => {
 				let chunk = data.chunks_exact(*feature_len)
-					.skip(index)
-					.next()?;
+					.nth(index)?;
 				ToArray::as_slice(chunk)
 			},
 		};
@@ -511,14 +511,14 @@ impl From<FeaturesF32> for FeaturesGeneric {
 impl super::FeatureType for f32 {
 	type FeaturesSpec = FeaturesF32;
 	
-	fn extract<'a>(generic: &'a FeaturesGeneric) -> Option<&'a Self::FeaturesSpec> {
+	fn extract(generic: &FeaturesGeneric) -> Option<&Self::FeaturesSpec> {
 		match generic {
 			FeaturesGeneric::Float32(r) => Some(r),
 			_ => None,
 		}
 	}
 	
-	fn extract_mut<'a>(generic: &'a mut FeaturesGeneric) -> Option<&'a mut Self::FeaturesSpec> {
+	fn extract_mut(generic: &mut FeaturesGeneric) -> Option<&mut Self::FeaturesSpec> {
 		match generic {
 			FeaturesGeneric::Float32(r) => Some(r),
 			_ => None,
