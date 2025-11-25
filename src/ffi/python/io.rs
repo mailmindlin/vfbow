@@ -1,6 +1,6 @@
 use std::{borrow::Cow, fs::File, io::{self, Read, Seek, SeekFrom, Write}, path::PathBuf};
 
-use pyo3::{exceptions::PyTypeError, prelude::*, types::{PyBytes, PyString}};
+use pyo3::{BoundObject, exceptions::PyTypeError, prelude::*, types::{PyBytes, PyString}};
 use super::dispatch::dispatch;
 
 mod consts {
@@ -160,8 +160,8 @@ struct PyIOCapabilities {
 /// 
 /// Faster than [PyIO] for multiple operations.
 #[derive(Debug)]
-struct PyIOBound<'py> {
-	inner: Cow<'py, Bound<'py, PyAny>>,
+struct PyIOBound<'a, 'py> {
+	inner: Cow<'a, Bound<'py, PyAny>>,
 	capabilities: PyIOCapabilities,
 }
 
@@ -183,7 +183,7 @@ impl<V, E: Into<PyErr>> MapPyError for Result<V, E> {
 	}
 }
 
-impl<'py> PyIOBound<'py> {
+impl<'a, 'py> PyIOBound<'a, 'py> {
 	pub(super) fn require_attr(&self, attr_name: &Bound<PyString>) -> PyResult<()> {
 		if !self.inner.hasattr(attr_name)? {
 			return Err(PyTypeError::new_err(format!("Object does not have a .{attr_name}() method.")));
@@ -229,7 +229,7 @@ impl<'py> PyIOBound<'py> {
 			// Ok(bytes.len())
 		} else {
 			self.inner.call_method1(read, (len,))?
-				.downcast_into::<PyBytes>()
+				.cast_into::<PyBytes>()
 				.map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e}")))
 		}
 	}
@@ -239,9 +239,9 @@ impl<'py> PyIOBound<'py> {
 		let arg = if self.capabilities.text {
 			let s = std::str::from_utf8(buf)
 				.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Tried to write non-utf8 data to a TextIO object: {e}")))?;
-			PyString::new_bound(py, s).into_any()
+			PyString::new(py, s).into_any()
 		} else {
-			PyBytes::new_bound(py, buf).into_any()
+			PyBytes::new(py, buf).into_any()
 		};
 
 		let number_bytes_written = self.inner.call_method1(consts::write(py), (arg,))?;
@@ -279,7 +279,7 @@ impl<'py> PyIOBound<'py> {
 	// }
 }
 
-impl<'py> Seek for PyIOBound<'py> {
+impl Seek for PyIOBound<'_, '_> {
 	fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         let (whence, offset) = match pos {
             SeekFrom::Start(offset) => (0, offset as i64),
@@ -297,7 +297,7 @@ impl<'py> Seek for PyIOBound<'py> {
 	}
 }
 
-impl<'py> Read for PyIOBound<'py> {
+impl Read for PyIOBound<'_, '_> {
 	fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
 		//TODO: maybe wrap buf in a memoryview and use readinto?
 		let bytes = self.py_read(Some(buf.len()))?;
@@ -314,7 +314,7 @@ impl<'py> Read for PyIOBound<'py> {
 		Ok(bytes.len())
 	}
 }
-impl<'py> Write for PyIOBound<'py> {
+impl Write for PyIOBound<'_, '_> {
 	fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
 		//TODO: prevent copy with memoryview?
 		self.py_write(buf)
@@ -325,12 +325,13 @@ impl<'py> Write for PyIOBound<'py> {
 	}
 }
 
-impl<'py> FromPyObject<'py> for PyIOBound<'py> {
-	fn extract_bound(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for PyIOBound<'a, 'py> {
+	type Error = PyErr;
+	fn extract(obj: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
 		let text_io = consts::text_io_base(obj.py())?;
 		let is_text_io = obj.is_instance(text_io)?;
 		Ok(Self {
-			inner: Cow::Owned(obj.clone()),
+			inner: Cow::Owned(obj.clone().into_bound()),
 			capabilities: PyIOCapabilities {
 				base: None,
 				text: is_text_io,
@@ -346,40 +347,40 @@ pub(super) struct PyIO {
 }
 
 impl PyIO {
-	fn bind<'a>(&'a self, py: Python<'a>) -> PyIOBound<'a> {
+	fn bind<'a>(&'a self, py: Python<'a>) -> PyIOBound<'a, 'a> {
 		PyIOBound { inner: Cow::Borrowed(self.inner.bind(py)), capabilities: self.capabilities }
 	}
 }
 
 impl Read for PyIO {
 	fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-		Python::with_gil(|py| self.bind(py).read(buf))
+		Python::attach(|py| self.bind(py).read(buf))
 	}
 	fn read_vectored(&mut self, bufs: &mut [io::IoSliceMut<'_>]) -> io::Result<usize> {
-		Python::with_gil(|py| self.bind(py).read_vectored(bufs))
+		Python::attach(|py| self.bind(py).read_vectored(bufs))
 	}
 	fn is_read_vectored(&self) -> bool {
 		false
 	}
 	fn read_to_end(&mut self, buf: &mut Vec<u8>) -> io::Result<usize> {
-		Python::with_gil(|py| self.bind(py).read_to_end(buf))
+		Python::attach(|py| self.bind(py).read_to_end(buf))
 	}
 	fn read_to_string(&mut self, buf: &mut String) -> io::Result<usize> {
-		Python::with_gil(|py| self.bind(py).read_to_string(buf))
+		Python::attach(|py| self.bind(py).read_to_string(buf))
 	}
 	fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
-		Python::with_gil(|py| self.bind(py).read_exact(buf))
+		Python::attach(|py| self.bind(py).read_exact(buf))
 	}
 }
 impl Write for PyIO {
 	fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-		Python::with_gil(|py| self.bind(py).write(buf))
+		Python::attach(|py| self.bind(py).write(buf))
 	}
 	fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-		Python::with_gil(|py| self.bind(py).write_all(buf))
+		Python::attach(|py| self.bind(py).write_all(buf))
 	}
 	fn flush(&mut self) -> io::Result<()> {
-		Python::with_gil(|py| self.bind(py).flush())
+		Python::attach(|py| self.bind(py).flush())
 	}
 }
 
@@ -387,18 +388,18 @@ impl Write for PyIO {
 #[derive(Debug)]
 enum PyPathOrIO<'py> {
 	Path(PathBuf),
-	FileLike(PyIOBound<'py>),
+	FileLike(PyIOBound<'py, 'py>),
 }
 
 impl<'py> PyPathOrIO<'py> {
-	pub(super) fn from_bound(path_or_file_like: &Bound<'py, PyAny>, read: bool, write: bool) -> PyResult<Self> {
+	pub(super) fn from_bound(path_or_file_like: Borrowed<'py, 'py, PyAny>, read: bool, write: bool) -> PyResult<Self> {
 		// Check if it's a path
 		let _e1 = match path_or_file_like.extract::<PathBuf>() {
 			Ok(path) => return Ok(Self::Path(path)),
 			Err(e) => e,
 		};
 
-		let _e2 = match path_or_file_like.downcast::<PyString>() {
+		let _e2 = match path_or_file_like.cast::<PyString>() {
 			Ok(string_ref) => {
 				let string = string_ref.to_string_lossy().to_string();
 				return Ok(Self::Path(string.into()));
@@ -434,8 +435,9 @@ impl Read for PyRead {
 	}
 }
 
-impl<'py> FromPyObject<'py> for PyRead {
-	fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for PyRead {
+	type Error = PyErr;
+	fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
 		Ok(match PyPathOrIO::from_bound(ob, true, false)? {
 			PyPathOrIO::Path(path_buf) => {
 				// Allocate the buffer *first* so we don't affect the filesystem otherwise.
@@ -453,8 +455,9 @@ pub(super) enum PyWrite {
 	Wrapped(PyIO),
 }
 
-impl<'py> FromPyObject<'py> for PyWrite {
-	fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for PyWrite {
+	type Error = PyErr;
+	fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
 		Ok(match PyPathOrIO::from_bound(ob, false, true)? {
 			PyPathOrIO::Path(path_buf) => {
 				// Allocate the buffer *first* so we don't affect the filesystem otherwise.

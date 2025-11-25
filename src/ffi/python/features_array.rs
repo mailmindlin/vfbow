@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use ndarray::{Array2, Axis, CowArray};
 use num_traits::Zero;
 use numpy::{BorrowError, Ix2, PyArray, PyArray2, PyArrayDescr, PyArrayDescrMethods, PyArrayMethods, PyReadonlyArray, PyReadonlyArray2, PyUntypedArray, PyUntypedArrayMethods};
-use pyo3::{exceptions::{PyRuntimeError, PyTypeError, PyValueError}, inspect::types::{ModuleName, TypeInfo}, types::PyAnyMethods, Bound, FromPyObject, PyAny, PyErr, PyResult};
+use pyo3::{Borrowed, Bound, BoundObject, FromPyObject, PyAny, PyErr, PyResult, exceptions::{PyRuntimeError, PyTypeError, PyValueError}, inspect::types::{ModuleName, TypeInfo}, types::PyAnyMethods};
 
 pub(super) enum CowArray2Any<'a> {
 	U8(CowArray<'a, u8, Ix2>),
@@ -138,7 +138,7 @@ impl<'py> PyFeaturesLike<'py> {
 					return Err(ReadonlyArray2Error::UnsuppportedDtype(dtype));
 				}
 
-				let as_f32 = feature.downcast::<PyArray2<f32>>()
+				let as_f32 = feature.cast::<PyArray2<f32>>()
 					.map_err(|e| ReadonlyArray2Error::Py(e.into()))?;
 				self.insert_f32(as_f32, index)
 			},
@@ -148,7 +148,7 @@ impl<'py> PyFeaturesLike<'py> {
 					return Err(ReadonlyArray2Error::UnsuppportedDtype(dtype));
 				}
 				
-				let as_u8 = feature.downcast::<PyArray2<u8>>()
+				let as_u8 = feature.cast::<PyArray2<u8>>()
 					.map_err(|e| ReadonlyArray2Error::Py(e.into()))?;
 				self.insert_u8(as_u8, index)
 			},
@@ -157,17 +157,18 @@ impl<'py> PyFeaturesLike<'py> {
 	}
 }
 
-impl<'py> FromPyObject<'py> for PyFeaturesLike<'py> {
-	fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for PyFeaturesLike<'py> {
+	type Error = PyErr;
+	fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
 		let mut result = Self::Empty;
-		if let Ok(features_numpy) = ob.downcast::<PyUntypedArray>() {
+		if let Ok(features_numpy) = ob.cast::<PyUntypedArray>() {
 			// Single array
-			result.insert_dyn(features_numpy, 0)?;
+			result.insert_dyn(&features_numpy.into_bound(), 0)?;
 		} else {
 			// Sequence of arrays
 			for (i, feature) in ob.try_iter()?.enumerate() {
 				let feature = feature?;
-				match feature.downcast::<PyUntypedArray>() {
+				match feature.cast::<PyUntypedArray>() {
 					Ok(array) => {
 						result.insert_dyn(array, i)?;
 					},

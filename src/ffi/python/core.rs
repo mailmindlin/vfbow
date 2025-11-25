@@ -1,7 +1,7 @@
-use std::{borrow::Cow, ops::Deref};
+use std::{borrow::{Borrow, Cow}, ops::Deref};
 
 use numpy::PyArray1;
-use pyo3::{exceptions::{PyKeyError, PyTypeError, PyValueError, PyZeroDivisionError}, inspect::types::{ModuleName, TypeInfo}, pyclass, pymethods, types::{IntoPyDict, PyAnyMethods, PyDict, PyString, PyStringMethods}, Bound, FromPyObject, IntoPyObject, IntoPyObjectExt, Py, PyAny, PyErr, PyResult, PyTraverseError, PyVisit, Python};
+use pyo3::{Borrowed, Bound, FromPyObject, IntoPyObject, IntoPyObjectExt, Py, PyAny, PyErr, PyResult, PyTraverseError, PyVisit, Python, exceptions::{PyKeyError, PyTypeError, PyValueError, PyZeroDivisionError}, inspect::types::{ModuleName, TypeInfo}, pyclass, pymethods, types::{IntoPyDict, PyAnyMethods, PyDict, PyString, PyStringMethods}};
 use rayon::iter::Either;
 
 use crate::{util::{scoring::LNorm, Scoring, SelfHash}, Bow, Features};
@@ -437,8 +437,9 @@ enum StringOrBool<'py> {
 	Bool(bool),
 }
 
-impl<'py> FromPyObject<'py> for SortModeRaw {
-	fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for SortModeRaw {
+	type Error = PyErr;
+	fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
 		if ob.is_none() {
 			return Ok(Self::None);
 		}
