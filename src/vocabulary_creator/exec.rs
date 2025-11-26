@@ -17,6 +17,24 @@ fn cmp_f32_pair<T>((_, a): &(T, f32), (_, b): &(T, f32)) -> std::cmp::Ordering {
 	f32::total_cmp(a, b)
 }
 
+/// Finds the index in `xs` that has the lowest score.
+/// 
+/// Panics if `xs` is empty
+fn argmin<T, F>(xs: &[T], score: F) -> usize 
+where
+	F: Fn(&T) -> f32
+{
+	xs
+		.iter()
+		.enumerate()
+		.map(|(idx, x)| (idx, score(x)))
+		.min_by(cmp_f32_pair)
+		.expect("empty input")
+		// Pick index, discard score
+		.0
+}
+
+/// Idk what this hash function is
 fn vhash(v_vec: &[Vec<u32>]) -> u64 {
 	let mut seed = 0u64;
 
@@ -71,10 +89,10 @@ impl<'a, T: DistFunc> InnerParams<'a, T> {
 
 	/// Assign each feature index to 
 	fn assign_to_clusters(&self, findices: &[FIndex], center_features: &[CowArray<'_, T, Ix1>], assignments: &mut [Vec<FIndex>]) {
-		for a in assignments.iter_mut() {
-			a.clear();
-		}
 		// Clear all assignments
+		assignments.iter_mut()
+			.for_each(Vec::clear);
+
 		/*if(omp) {
 			std::vector<std::map<uint32_t,std::list<uint32_t> > >map_assigments_omp(omp_get_max_threads());
 	#pragma omp parallel for
@@ -101,12 +119,11 @@ impl<'a, T: DistFunc> InnerParams<'a, T> {
 		else{*/
 		for fi in findices {
 			let feature = self.features.get(*fi as _);
-			let center_dist_min = center_features.iter()
-				.enumerate()
-				.map(|(idx, center_feature)| (idx, T::dist_func(center_feature.view(), feature)))
-				.min_by(cmp_f32_pair)
-				.unwrap()
-				.0;
+			// Select the index of the closest 
+			let center_dist_min = argmin(
+				center_features,
+				|center_feature| T::dist_func(center_feature.view(), feature)
+			);
 			assignments[center_dist_min].push(*fi);
 		}
 		//check
