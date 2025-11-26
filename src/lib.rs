@@ -11,6 +11,7 @@
 // AVX-512
 #![cfg_attr(target_arch="x86_64", feature(stdarch_x86_avx512, avx512_target_feature))]
 #![warn(missing_docs)]
+#![cfg_attr(feature="f16", feature(half_float))]
 
 mod vocabulary_creator;
 pub mod vocabulary;

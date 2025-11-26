@@ -43,3 +43,4 @@ python = [
 ]
 default = ["python"]
 opencv = ["dep:opencv"]
+f16 = []

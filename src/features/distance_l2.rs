@@ -21,6 +21,16 @@ pub(super) trait ElementL2 {
 	fn distance_l2(self, other: Self) -> f32;
 }
 
+#[cfg(feature="f16")]
+impl ElementL2 for f16 {
+	#[inline]
+	fn distance_l2(self, other: Self) -> f32 {
+		//TODO: when should this conversion happen?
+		let delta = (self - other).to_f32();
+		delta * delta
+	}
+}
+
 impl ElementL2 for f32 {
 	#[inline]
 	fn distance_l2(self, other: Self) -> f32 {
