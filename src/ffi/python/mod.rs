@@ -131,7 +131,7 @@ impl PyVocabulary {
 
 	/// String description
 	fn __str__(&self) -> String {
-		format!("{:?}", self.0.as_ref())
+		self.__repr__()
 	}
 
 	/// String representation
