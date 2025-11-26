@@ -10,15 +10,6 @@ struct FeatureIndex {
 	fidx: usize,
 }
 
-impl FeatureIndex {
-	const fn new(midx: usize, fidx: usize) -> Self {
-		Self {
-			midx,
-			fidx,
-		}
-	}
-}
-
 /// Struct to acces the features as a unique vector
 pub(super) struct FeatureInfo<T> {
 	/// Because we're pretending we squashed the arrays in `features`, we need a quick lookup structure to resolve get(i) -> features[midx][fidx].
@@ -62,7 +53,7 @@ impl<T> FeatureInfo<T> {
 			}
 
 			for i in 0..feature.nrows() {
-				finfo.push(FeatureIndex::new(midx, i));
+				finfo.push(FeatureIndex { midx, fidx: i });
 			}
 		}
 		Ok(Self { finfo, features })
@@ -88,6 +79,8 @@ impl FeatureInfo<f32> {
 	/// Compute the mean of the features specified by `indices` (specialized for [f32] features)
 	pub(super) fn mean_value(&self, indices: impl ExactSizeIterator<Item = usize>) -> Array1<f32> {
 		let len = indices.len();
+		assert_ne!(len, 0, "Empty indices");
+
 		let mut mean = Array1::<f32>::zeros([self.feature_len()]);
 		for idx in indices {
 			let feature = self.get(idx);
