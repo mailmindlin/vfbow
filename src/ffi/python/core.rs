@@ -60,8 +60,18 @@ impl AnyDictPy {
 			AnyDictPy::None => Ok(()),
 		}
 	}
-	fn clear(&mut self) {
-		*self = Self::None;
+	/// Clear the reference
+	/// 
+	/// Slightly faster if `py` is provided
+	fn gc_clear(&mut self, py: Option<Python>) {
+		let prev = std::mem::replace(self, Self::None);
+		if let Some(py) = py {
+			match prev {
+				Self::Bow(b) => b.drop_ref(py),
+				Self::Features(f) => f.drop_ref(py),
+				Self::None => {},
+			}
+		}
 	}
 
 	/// Get the internal Python reference
@@ -116,8 +126,8 @@ enum ListOutput {
 }
 
 impl ListOutput {
-	fn to_numpy<'py>(self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
 	/// Convert to numpy array or something
+	fn into_numpy<'py>(self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
 		Ok(match self {
 			// ndarray[uint32, [int]]
 			ListOutput::Keys(items) => PyArray1::from_vec(py, items).into_any(),
@@ -143,7 +153,7 @@ impl ListOutput {
 					.map(|item| PyArray1::from_vec(py, item))
 					.collect::<Vec<_>>();
 				items.into_bound_py_any(py)?
-			},
+			}
 			// tuple[ndarray[uint32, [int]], list[ndarray[uint32, [int]]]]
 			ListOutput::ItemF(items) => {
 				let mut keys = Vec::with_capacity(items.len());
@@ -442,7 +452,7 @@ impl PyDictView {
 	#[pyo3(signature = (sorted = SortModeRaw::None))]
 	fn to_numpy<'py>(&self, py: Python<'py>, sorted: SortModeRaw) -> PyResult<Bound<'py, PyAny>> {
 		self.to_py(py, sorted)
-			.and_then(|r| r.to_numpy(py))
+			.and_then(|r| r.into_numpy(py))
 	}
 
 	/// Convert to list
@@ -456,9 +466,9 @@ impl PyDictView {
 		self.base.traverse(visit)
 	}
 
-	fn __clear__(&mut self) {
-		self.base.clear();
 	/// GC cleanup
+	fn __clear__(&mut self, py: Python) {
+		self.base.gc_clear(Some(py));
 	}
 }
 
@@ -865,9 +875,11 @@ impl IntersectFeatures {
 		}
 		Ok(())
 	}
-	fn __clear__(&mut self) {
-		self.features.clear();
 	/// GC cleanup
+	fn __clear__(&mut self, py: Python) {
+		//TODO: which one is faster? clear() or drop_ref()
+		self.features.drain(..)
+			.for_each(|feature| feature.drop_ref(py));
 	}
 }
 

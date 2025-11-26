@@ -190,11 +190,11 @@ impl<'a, 'py> PyIOBound<'a, 'py> {
 	}
 
 	fn require_readable(&self) -> PyResult<()> {
-		todo!()
+		self.require_attr(consts::read(self.py()))
 	}
 
 	fn require_writable(&self) -> PyResult<()> {
-		todo!()
+		self.require_attr(consts::write(self.py()))
 	}
 
 	fn py(&self) -> Python<'py> {
@@ -213,7 +213,7 @@ impl<'a, 'py> PyIOBound<'a, 'py> {
 	fn py_read(&self, len: Option<usize>) -> io::Result<Bound<'py, PyBytes>> {
 		let read = consts::read(self.py());
 		if self.capabilities.text {
-			todo!()
+			todo!("read text")
 			// if buf.len() < 4 {
 			// 	return Err(io::Error::new(
 			// 		io::ErrorKind::InvalidInput,
@@ -326,7 +326,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyIOBound<'a, 'py> {
 		let text_io = consts::text_io_base(obj.py())?;
 		let is_text_io = obj.is_instance(text_io)?;
 		Ok(Self {
-			inner: Cow::Owned(obj.clone().into_bound()),
+			inner: Cow::Owned(obj.into_bound()),
 			capabilities: PyIOCapabilities {
 				base: None,
 				text: is_text_io,
