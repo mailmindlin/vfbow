@@ -85,37 +85,61 @@ impl_desf_tryfrom!(
 	u32 => DescriptorType
 );
 
+/// Emit a warning
+macro_rules! warning {
+	($kind:expr, $fmt:literal $(, $($arg:tt)+)?) => {
+		if $kind >= ParseValidationMode::Warn {
+			let message = format!($fmt $(, $($arg)+)?);
+			
+			match $kind {
+				ParseValidationMode::Strict => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, message)),
+				ParseValidationMode::Warn => println!("[warn] {message}"),
+				ParseValidationMode::Ignore => unreachable!(),
+			}
+		}
+	};
+	($kind:expr, $error:expr) => {
+		match $kind {
+			ParseValidationMode::Strict => return Err(io::Error::new(io::ErrorKind::InvalidData, $error)),
+			ParseValidationMode::Warn => println!("[warn] {}", $error),
+			ParseValidationMode::Ignore => {},
+		}
+	}
+}
+
 /// Read `N` padding bytes. Errors if padding wasn't zeroed
-fn read_padding<const N: usize>(src: &mut impl Read) -> io::Result<()> {
+fn read_padding<const N: usize>(src: &mut impl Read, options: &ReadFbowOptions) -> io::Result<()> {
 	let mut buf = [0u8; N];
 	src.read_exact(&mut buf)?;
-	assert_eq!(buf, [0u8; N]);
+	if buf != [0u8; N] {
+		warning!(options.nonzero_padding, "Padding must be full of zeros");
+	}
 	Ok(())
 }
 
 /// Generates code to parse fields with padding
 //TODO: generate a vectored read version
 macro_rules! parse_fields {
-	{($src:expr)} => {};
+	{($src:expr, $options:expr)} => {};
 	{
-		($src:expr)
+		($src:expr, $options:expr)
 		padding($len:literal);
 		$($tt:tt)*
 	} => {
-		read_padding::<$len>(&mut $src)?;
+		read_padding::<$len>(&mut $src, $options)?;
 		parse_fields! {
-			($src)
+			($src, $options)
 			$($tt)*
 		}
 	};
 	{
-		($src:expr)
+		($src:expr, $options:expr)
 		$name:ident: $ty:ty;
 		$($tt:tt)*
 	} => {
 		let $name: $ty = <$ty as DeserializeFixed>::read(&mut $src)?;
 		parse_fields! {
-			($src)
+			($src, $options)
 			$($tt)*
 		}
 	};
@@ -150,28 +174,6 @@ impl From<VocabularyReadOptions> for ReadFbowOptions {
 			invalid_weight: value.inconsistent_block,
 			block_cycle: value.inconsistent_block,
 			invalid_child: value.inconsistent_block,
-		}
-	}
-}
-
-/// Emit a warning
-macro_rules! warning {
-	($kind:expr, $fmt:literal $(, $($arg:tt)+)?) => {
-		if $kind >= ParseValidationMode::Warn {
-			let message = format!($fmt $(, $($arg)+)?);
-			
-			match $kind {
-				ParseValidationMode::Strict => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, message)),
-				ParseValidationMode::Warn => println!("[warn] {message}"),
-				ParseValidationMode::Ignore => unreachable!(),
-			}
-		}
-	};
-	($kind:expr, $error:expr) => {
-		match $kind {
-			ParseValidationMode::Strict => return Err(io::Error::new(io::ErrorKind::InvalidData, $error)),
-			ParseValidationMode::Warn => println!("[warn] {}", $error),
-			ParseValidationMode::Ignore => {},
 		}
 	}
 }
@@ -246,7 +248,7 @@ impl FbowParams {
 		
 		//TODO: use offset_of! to generate this
 		parse_fields! {
-			(src)
+			(src, options)
 			// Because of padding, there should be an extra two bytes
 			padding(2);
 			alignment: u32;
@@ -311,7 +313,7 @@ struct BlockNodeInfo {
 impl BlockNodeInfo {
 	/// Is this block a leaf?
 	fn is_leaf(&self) -> bool {
-		self.id_or_childblock & 0x80000000 != 0
+		self.id_or_childblock & 0x8000_0000 != 0
 	}
 }
 
