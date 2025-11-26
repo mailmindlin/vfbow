@@ -3,12 +3,14 @@ use std::{borrow::Cow, fs::File, io::{self, Read, Seek, SeekFrom, Write}, path::
 use pyo3::{BoundObject, exceptions::PyTypeError, prelude::*, types::{PyBytes, PyString}};
 use super::dispatch::dispatch;
 
+/// Constant strings and types from the `io` module
 mod consts {
 	use pyo3::prelude::*;
 	use pyo3::sync::GILOnceCell;
 	use pyo3::types::PyString;
 	use pyo3::{intern, Bound, Py, PyResult, Python};
 
+	/// Macro to build interned strings
 	macro_rules! intern_strings {
 		{$($name:ident = $value:literal),*} => {
 			$(
@@ -28,6 +30,7 @@ mod consts {
 		flush = "flush"
 	}
 
+	/// Macro to intern types
 	macro_rules! intern_types {
 		{
 			from $module:literal import (
@@ -147,8 +150,10 @@ enum PyCapability {
 	Seekable,
 }
 
+/// Discovered capabilities of a Python IO object
 #[derive(Clone, Copy, Debug)]
 struct PyIOCapabilities {
+	/// Base type
 	base: Option<KnownIOBase>,
 	/// Is the inner type text-based
 	text: bool,
@@ -159,7 +164,9 @@ struct PyIOCapabilities {
 /// Faster than [PyIO] for multiple operations.
 #[derive(Debug)]
 struct PyIOBound<'a, 'py> {
+	/// Bound Python object (may be shared)
 	inner: Cow<'a, Bound<'py, PyAny>>,
+	/// Discoverd I/O capabilities
 	capabilities: PyIOCapabilities,
 }
 
@@ -182,6 +189,7 @@ impl<V, E: Into<PyErr>> MapPyError for Result<V, E> {
 }
 
 impl<'a, 'py> PyIOBound<'a, 'py> {
+	/// Throw errors early by checking for the existance of specific attributes
 	pub(super) fn require_attr(&self, attr_name: &Bound<PyString>) -> PyResult<()> {
 		if !self.inner.hasattr(attr_name)? {
 			return Err(PyTypeError::new_err(format!("Object does not have a .{attr_name}() method.")));
@@ -189,18 +197,22 @@ impl<'a, 'py> PyIOBound<'a, 'py> {
 		Ok(())
 	}
 
+	/// Require that this object is readable
 	fn require_readable(&self) -> PyResult<()> {
 		self.require_attr(consts::read(self.py()))
 	}
 
+	/// Require that this object is writable
 	fn require_writable(&self) -> PyResult<()> {
 		self.require_attr(consts::write(self.py()))
 	}
 
+	/// Get GIL marker
 	fn py(&self) -> Python<'py> {
 		self.inner.py()
 	}
 
+	/// Get unbound variant
 	fn unbind(self) -> PyIO {
 		PyIO {
 			inner: self.inner
@@ -210,6 +222,7 @@ impl<'a, 'py> PyIOBound<'a, 'py> {
 		}
 	}
 
+	/// Read up to `len`-many bytes
 	fn py_read(&self, len: Option<usize>) -> io::Result<Bound<'py, PyBytes>> {
 		let read = consts::read(self.py());
 		if self.capabilities.text {
@@ -232,8 +245,10 @@ impl<'a, 'py> PyIOBound<'a, 'py> {
 		}
 	}
 
+	/// Call `write()`
 	fn py_write(&self, buf: &[u8]) -> io::Result<usize> {
 		let py = self.py();
+		// Either str or bytes depending on capabilities
 		let arg = if self.capabilities.text {
 			let s = std::str::from_utf8(buf)
 				.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Tried to write non-utf8 data to a TextIO object: {e}")))?;
@@ -251,12 +266,14 @@ impl<'a, 'py> PyIOBound<'a, 'py> {
 		number_bytes_written.extract().map_err(io::Error::from)
 	}
 
+	/// Call `flush()`
 	fn py_flush(&self) -> io::Result<()> {
 		let py = self.py();
 		self.inner.call_method0(consts::flush(py))?;
 		Ok(())
 	}
 
+	/// Call `fileno()` if available
 	#[cfg(unix)]
 	fn py_as_raw_fd(&self) -> PyResult<std::os::fd::RawFd> {
 		let py = self.py();
@@ -335,13 +352,19 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyIOBound<'a, 'py> {
 	}
 }
 
+/// Wrapper for Python file-like object to implement Rust IO traits
+/// 
+/// Unbound to the GIL. The associated bound type is [PyIOBound]
 #[derive(Debug)]
 pub(super) struct PyIO {
+	/// Python reference
 	inner: Py<PyAny>,
+	/// Resolved capabilities
 	capabilities: PyIOCapabilities,
 }
 
 impl PyIO {
+	/// Bind to the GIL
 	fn bind<'a>(&'a self, py: Python<'a>) -> PyIOBound<'a, 'a> {
 		PyIOBound { inner: Cow::Borrowed(self.inner.bind(py)), capabilities: self.capabilities }
 	}
@@ -382,11 +405,14 @@ impl Write for PyIO {
 /// Represents either a path `Path` or a file-like object `FileLike`
 #[derive(Debug)]
 enum PyPathOrIO<'py> {
+	/// A filesystem path
 	Path(PathBuf),
+	/// A Python file-like object
 	FileLike(PyIOBound<'py, 'py>),
 }
 
 impl<'py> PyPathOrIO<'py> {
+	/// Extract from a Python object that is either a path or a file-like object
 	pub(super) fn from_bound(path_or_file_like: Borrowed<'py, 'py, PyAny>, read: bool, write: bool) -> PyResult<Self> {
 		// Check if it's a path
 		let _e1 = match path_or_file_like.extract::<PathBuf>() {
@@ -415,7 +441,9 @@ impl<'py> PyPathOrIO<'py> {
 
 /// Python argument that we can adapt to [std::io::Read]
 pub(super) enum PyRead {
+	/// A Rust native file
 	Native(File),
+	/// A Python file-like object
 	Wrapped(PyIO),
 }
 
@@ -446,7 +474,9 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyRead {
 
 /// Python argument that we can adapt to [std::io::Write]
 pub(super) enum PyWrite {
+	/// A Rust native file
 	Native(File),
+	/// A Python file-like object
 	Wrapped(PyIO),
 }
 
