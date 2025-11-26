@@ -323,7 +323,8 @@ impl FeaturesU8 {
 	/// Convert to Python ndarray
 	#[cfg(feature="python")]
 	pub(super) fn to_ndarray<'a>(&self, py: pyo3::Python<'a>) -> pyo3::PyResult<pyo3::Bound<'a, numpy::PyArray2<u8>>> {
-		match self {
+		todo!("Convert FeaturesU8 to numpy array")
+		/*match self {
 			// Self::Generic { data, .. } => {
 			// 	let r = numpy::PyArray2::from_vec2_bound(py, data)?;
 			// 	Ok(r)
@@ -332,7 +333,7 @@ impl FeaturesU8 {
 				//TODO
 				Ok(numpy::PyArray2::zeros(py, (0,0), false))
 			}
-		}
+		}*/
 	}
 }
 
@@ -481,10 +482,10 @@ impl Features<u8> for FeaturesU8 {
 			FeaturesU8::Array61(features) => QueryU8::Array61(AlignQuery::new(features, value)),
 			FeaturesU8::Generic { feature_len, data } => {
 				assert_eq!(*feature_len, value.len(), "Value length mismatch");
-				// let value = match value.to_slice() {
-				// 	Some(slice) => Cow::Borrowed(slice),
-				// 	None => Cow::Owned(value.to_vec()),
-				// };
+				let value = match value.to_slice() {
+					Some(slice) => Cow::Borrowed(slice),
+					None => Cow::Owned(value.to_vec()),
+				};
 				// QueryU8::Generic(SliceQuery { features: &data, value })
 				todo!("query generic u8")
 			},

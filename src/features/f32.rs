@@ -11,17 +11,17 @@ use std::arch::{is_arm_feature_detected, arm::float32x4_t};
 use std::arch::{is_x86_feature_detected, x86_64::{__m128, __m256, __m512}};
 #[cfg(target_arch="x86")]
 use std::arch::{is_x86_feature_detected, x86::{__m128, __m256, __m512}};
-use std::{any, borrow::Cow, mem::MaybeUninit};
+use std::{borrow::Cow, mem::{MaybeUninit, offset_of}};
 
 use ndarray::ArrayView1;
 
 #[cfg(any(target_arch="x86_64", target_arch="x86"))]
 use crate::features::distance_l2::{l2_avx512_array, l2_avx_array, l2_sse_array};
-use crate::{features::{Features, shared::ToArray}, util::convert::convert_le};
+use crate::{features::{Features, shared::ToArray, util::{assert_alignment_geq, assert_array_packed, assert_not_zst, assert_size_multiple}}, util::convert::convert_le};
 use crate::util::serde::{read_u32ish, write_u32ish};
 #[cfg(any(target_arch="aarch64", target_arch="arm"))]
-use super::distance_l2::{l2_neon_slice, l2_neon_array};
-use super::{distance_l2::{l2_array, l2_slice, AccumulateL2}, shared::{is_slice_packed, SliceQuery}};
+use super::distance_l2::{self, AccumulateL2};
+use super::shared::SliceQuery;
 use crate::{Deserialize, Serialize};
 
 use super::{DistanceQuery, FeaturesGeneric};
@@ -63,7 +63,7 @@ impl<const N: usize> FeatureDistance for PackedArray<N> {
 	type Metric = L2;
 	type Distance = f32;
 	fn distance(&self, other: &Self) -> f32 {
-		l2_array::<N>(self, other)
+		distance_l2::generic::array::<N>(self, other)
 	}
 }
 
@@ -72,7 +72,7 @@ impl FeatureDistance for [f32] {
 	type Distance = f32;
 
 	fn distance(&self, other: &Self) -> Self::Distance {
-		l2_slice(self, other)
+		distance_l2::generic::slice(self, other)
 	}
 }
 
@@ -84,85 +84,130 @@ impl FeatureDistance for [float32x4_t] {
 	fn distance(&self, other: &Self) -> Self::Distance {
 		super::arch::debug_ensure_neon();
 
+		unsafe { distance_l2::neon::slice(self, other) }
+	}
+}
+
+/// Assert that some type is actually packed [f32]s, and can be transmuted to/from `[f32; size_of<Self>() / size_of<f32>()]` correctly
+/// 
+/// # Safety
+/// Given the number of elements `N = size_of::<Self>() / size_of::<f32>()`
+/// 
+/// This type MUST have the properties:
+/// - All references `&Self` may transmuted to `&[f32; N]`
+/// - All references `&[Self; X]` may be transmuted to `&[f32; X * N]`
+/// - The above rules also apply to mutable references and [MaybeUninit] references.
+/// - When transmuting `&mut MaybeUninit<Self>` => `&mut [MaybeUninit<f32>; X]` and writing to every element of the second array, the first reference may be considered initialized.
+/// 
+/// These can only hold for types that are equivalend in memory layout to `[f32; N]`.
+unsafe trait TransmutePackedF32: Sized {}
+
+/// Safety: float32x4 is a SIMD type like `[f32; 4]`
+#[cfg(any(target_arch="aarch64", target_arch="arm"))]
+unsafe impl TransmutePackedF32 for float32x4_t {}
+
+
+/// Helper to store `[f32; X]` transmuted into `[E; N]`. Used for when we pack an array of [f32]s into a SIMD type
+/// 
+/// Invariant: `E` must be a size multiple of [f32], and have a greater or equal alignment.
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+struct TransmuteArray<E: Sized, const N: usize>([E; N]);
+
+impl<E: Sized + TransmutePackedF32, const N: usize> TransmuteArray<E, N> {
+	/*const fn inner_ptr<'a>(this: &'a mut MaybeUninit<Self>) -> &'a mut [MaybeUninit<E>; N] {
+		// Assert that the memory layout of Self is equivalent to [E; N]
+		// I think this is guaranteed by `#[repr(transparent)]`
+		const {
+			let () = assert!(offset_of!(Self, 0) == 0);
+			let () = assert!(size_of::<Self>() == size_of::<[E; N]>());
+			let () = assert!(N != 0);
+		}
+
 		unsafe {
-			l2_neon_slice(self, other)
+			this.as_mut_ptr()
+				.cast::<[MaybeUninit<E>; N]>()
+				.as_mut().unwrap()
+		}
+	}*/
+	/// Transmute `MaybeUninit<Self>` to slice of uninitialized f32s safely
+	/// 
+	/// This can be done safely because of the requirements of [TransmutePackedF32]
+	const fn element_ptr(this: &mut MaybeUninit<Self>) -> &mut [MaybeUninit<f32>] {
+		const {
+			// Assert that the memory layout of Self is equivalent to [E; N]
+			// I think this is guaranteed by `#[repr(transparent)]`
+			let () = assert!(offset_of!(Self, 0) == 0);
+			let () = assert!(size_of::<Self>() == size_of::<[E; N]>());
+			let () = assert!(N != 0);
+			// Now prove that we can transmute to f32
+			assert_array_packed::<E>();
+			assert_alignment_geq::<E, f32>();
+			assert_not_zst::<E>();
+			assert_size_multiple::<E, f32>();
+		}
+
+		unsafe {
+			let ptr = this.as_mut_ptr().cast();
+			core::slice::from_raw_parts_mut(ptr, N * size_of::<E>() / size_of::<f32>())
 		}
 	}
 }
 
-
-#[repr(transparent)]
-#[derive(Clone, Copy)]
-pub(crate) struct TransmuteArray<E: Sized, const N: usize>([E; N]);
-
-impl<E: Sized + Copy, const N: usize> FromArray<f32> for TransmuteArray<E, N> {
+impl<E: Sized + Copy + TransmutePackedF32, const N: usize> FromArray<f32> for TransmuteArray<E, N> {
 	fn from_array<'a>(dst: &'a mut MaybeUninit<Self>, array: ArrayView1<'_, f32>) -> &'a mut Self {
 		if let Some(slice) = array.as_slice() {
 			Self::from_slice(dst, slice)
 		} else {
 			assert!(size_of::<E>().is_multiple_of(size_of::<f32>()));
-			let feature_len = N * size_of::<E>() / size_of::<f32>();
 			assert_ne!(size_of::<E>(), 0, "Can't use ZSTs");
 			assert_ne!(N, 0, "Empty feature");
 
-			let dst_u8 = {
-				// I can't imagine a platform where this isn't true
-				assert!(align_of::<E>() >= align_of::<f32>());
-				// Check that our array is packed (we could write code to deal with this, but I don't think we need to)
-				assert!(is_slice_packed::<E>(), "Array not packed");
-				dst.as_bytes_mut()
-			};
+			let dst_slice = Self::element_ptr(dst);
 			
 			// Slow path: we have to copy from a non-contiguous view
 			println!("Warn: transmute slow");
-			assert_ne!(array.len(), feature_len, "Invalid feature size (actual: {}, expected: {feature_len})", array.len());
+			assert_ne!(array.len(), dst_slice.len(), "Invalid feature size (actual: {}, expected: {})", array.len(), dst_slice.len());
 			//TODO: are there any meaningful optimizations we can do here?
-			// for (src, dst) in array.iter().zip(&mut dst_u8[..F]) {
-			// 	dst.write(*src);
-			// }
+			let mut dst_iter = dst_slice.iter_mut();
+			for (src, dst) in array.iter().zip(dst_iter.by_ref()) {
+				dst.write(*src);
+			}
+			assert!(dst_iter.next().is_none(), "Not all elements were written to");
 
-			// unsafe { dst.assume_init_mut() }
-			todo!("{} from_array", any::type_name::<Self>())
+			// Safety: we wrote to every element of `dst`
+			unsafe { dst.assume_init_mut() }
 		}
 	}
 
 	fn from_slice<'a>(dst: &'a mut MaybeUninit<Self>, slice: &[f32]) -> &'a mut Self {
-		todo!("{} from_slice", any::type_name::<Self>())
-		/*assert_ne!(size_of::<E>(), 0, "Can't use ZSTs");
-		
-		let dst_u8 = {
+		const {
+			assert_not_zst::<E>();
 			// I can't imagine a platform where this isn't true
-			assert!(align_of::<E>() >= align_of::<u8>());
+			assert_alignment_geq::<E, f32>();
 			// Check that our array is packed (we could write code to deal with this, but I don't think we need to)
-			assert!(align_of::<E>() <= size_of::<E>(), "Array not packed");
-			dst.as_bytes_mut()
+			assert_array_packed::<E>();
 		};
 
-		assert_eq!(slice.len(), F, "Invalid feature size (actual: {}, expected: {F}) for {}", slice.len(), std::any::type_name::<Self>());
+		let expected_f32s = N * size_of::<E>() / size_of::<f32>();
+		assert_eq!(slice.len(), expected_f32s, "Invalid feature size (actual: {}, expected: {expected_f32s}) for {}", slice.len(), std::any::type_name::<Self>());
 
-		if N * size_of::<E>() == F {
-			// Fast path: we just do a memcpy
-			MaybeUninit::copy_from_slice(dst_u8, slice);
-		} else {
-			// Pad with zeros to ensure rust's safety guarantees
-			// Fast-enough path: we do a memcpy + memset
-			MaybeUninit::copy_from_slice(&mut dst_u8[..F], slice);
-			MaybeUninit::fill(&mut dst_u8[F..], 0);
-		}
-		unsafe { dst.assume_init_mut() }*/
+		// memcpy
+		Self::element_ptr(dst).write_copy_of_slice(slice);
+		unsafe { dst.assume_init_mut() }
 	}
 
 	fn as_slice<'a>(&'a self) -> Cow<'a, [f32]> {
-		if is_slice_packed::<E>() && is_slice_packed::<[E; N]>() {
-			// No padding, transmute is safe
-			let (pfx, bytes, sfx) = unsafe { self.0.align_to::<u8>() };
-			assert!(pfx.is_empty());
-			assert!(sfx.is_empty());
-
-			// Cow::Borrowed(bytes)
-		} else {
+		const {
+			assert_array_packed::<E>();
+			assert_array_packed::<[E; N]>();
 		}
-		todo!("{} as_slice", any::type_name::<Self>())
+		// Safety: invariant of TransmutePackedF32
+		let (pfx, result, sfx) = unsafe { self.0.align_to::<f32>() };
+		assert!(pfx.is_empty());
+		assert!(sfx.is_empty());
+
+		Cow::Borrowed(result)
 	}
 }
 
@@ -227,7 +272,7 @@ impl<const N: usize> FeatureDistance for TransmuteArray<float32x4_t, N> {
 		//TODO: include detection on AccumulateL1Unsafe?
 		super::arch::debug_ensure_neon();
 		unsafe {
-			l2_neon_array::<N>(&self.0, &other.0)
+			distance_l2::neon::array::<N>(&self.0, &other.0)
 		}
 	}
 }
@@ -252,11 +297,12 @@ pub(crate) enum QueryF32<'a> {
 	Avx512_64(AlignQuery<'a, TransmuteArray<std::arch::x86_64::__m512, 4>>),
 	/// Corresponds to [FeaturesF32::Array64]
 	Array64(AlignQuery<'a, PackedArray<64>>),
-	Generic(SliceQuery<'a, [f32], Vec<f32>>),
 	/// Corresponds to [FeaturesF32::Generic]
+	Generic(SliceQuery<'a, f32>),
 }
 
 /// Storage for f32 features
+#[allow(private_interfaces)]
 pub(crate) enum FeaturesF32 {
 	// Specialize [f32; 64] because of SURF
 	/// SURF `[f32; 64]` => `[float32x4_t; 16]` (requires NEON)
@@ -349,6 +395,12 @@ impl FeaturesF32 {
 			Self::Array64(..) => 64,
 			Self::Generic { feature_len, .. } => *feature_len,
 		}
+	}
+
+	/// Convert to Python ndarray
+	#[cfg(feature="python")]
+	pub(super) fn to_ndarray<'a>(&self, py: pyo3::Python<'a>) -> pyo3::PyResult<pyo3::Bound<'a, numpy::PyArray2<f32>>> {
+		todo!("Convert FeaturesF32 to numpy array")
 	}
 }
 
@@ -494,8 +546,7 @@ impl super::Features<f32> for FeaturesF32 {
 			Self::Array64(vec) => QueryF32::Array64(AlignQuery::new(vec, value)),
 			Self::Generic { data, feature_len } => {
 				assert_eq!(*feature_len, value.len(), "Feature length mismatch");
-				// QueryF32::Generic(SliceQuery::new(data, value))
-				todo!()
+				QueryF32::Generic(SliceQuery::new(data, *feature_len, value))
 			},
 		}
 	}

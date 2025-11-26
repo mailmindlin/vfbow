@@ -59,6 +59,7 @@ pub(super) trait FromArray<E>: Sized + Copy {
 	fn as_slice<'a>(&'a self) -> Cow<'a, [E]> where [E]: ToOwned;
 }
 
+/// A [DistanceQuery] where 
 pub(crate) struct AlignQuery<'a, E: ToOwned + ?Sized, F = E> {
 	pub(super) features: &'a [F],
 	pub(super) value: Cow<'a, E>,
@@ -78,24 +79,34 @@ fn array_to_cow<'a, E: FromArray<T>, T>(array: ArrayView1<'a, T>) -> Cow<'a, E> 
 			return Cow::Borrowed(res[0]);
 		}
 	}*/
-	let mut dst = MaybeUninit::zeroed();
-	let dst_mut = &mut dst;
-	{
-		let dst_ptr = std::ptr::from_ref(dst_mut);
+
+	// Fallback: copy to vector
+	Cow::Owned({
+		let mut dst = MaybeUninit::zeroed();
+		let dst_ptr = dst.as_ptr();
 		let res = E::from_array(&mut dst, array);
-		// Double check that we returned the same pointer
-		debug_assert!(std::ptr::addr_eq(dst_ptr, res))
+		// Double check that we got the same pointer back
+		debug_assert!(std::ptr::addr_eq(dst_ptr, res), "FromArray::from_array invariant violated");
+		// Safety: we have an initialized reference to dst
+		unsafe { dst.assume_init() }
+	})
+}
+/// Convert ArrayView1 to Cow, trying not to copy
+fn array_to_cow_simple<'a, E>(array: ArrayView1<'a, E>) -> Cow<'a, [E]> where [E]: ToOwned<Owned = Vec<E>>, E: Clone {
+	// It would be really great if we didn't have to copy the array
+	match array.to_slice() {
+		Some(slice) => Cow::Borrowed(slice),
+		None => Cow::Owned(array.to_vec()),
 	}
-	Cow::Owned(unsafe { dst.assume_init() })
 }
 
 #[allow(private_bounds)]
 impl<'a, E: FeatureDistance + ToOwned> AlignQuery<'a, E, E> {
-	pub(super) fn new<T>(features: &'a [E], array: ArrayView1<'a, T>) -> Self where E: FromArray<T> {
 	/// Construct from value array
+	pub(super) fn new<T>(features: &'a [E], value_array: ArrayView1<'a, T>) -> Self where E: FromArray<T> {
 		Self {
 			features,
-			value: array_to_cow(array),
+			value: array_to_cow(value_array),
 		}
 	}
 }
@@ -120,34 +131,40 @@ impl<'a, E: FeatureDistance + ToOwned + ?Sized, F: Borrow<E>> DistanceQuery for 
 
 
 /// A [DistanceQuery] where the features are stored as a packed slice
+pub(crate) struct SliceQuery<'a, E> where [E]: ToOwned {
+	/// The value being queried
+	value: Cow<'a, [E]>,
 
-pub(crate) struct SliceQuery<'a, E: ToOwned + ?Sized, F = E> {
-	features: &'a [F],
-	value: Cow<'a, E>,
+	/// Reference to the feature data
+	features: &'a [E],
+	feature_len: usize,
 }
 
 #[allow(private_bounds)]
-impl<'a, E: FeatureDistance + ToOwned> SliceQuery<'a, E, E> {
-	pub(super) fn new<T>(features: &'a [E], array: ArrayView1<'a, T>) -> Self where E: FromArray<T> {
+impl<'a, E> SliceQuery<'a, E> where [E]: FeatureDistance + ToOwned<Owned = Vec<E>>, E: Clone {
+	/// Constructor from value array
+	pub(super) fn new(features: &'a [E], feature_len: usize, value_array: ArrayView1<'a, E>) -> Self {
 		Self {
 			features,
-			value: array_to_cow(array),
+			feature_len,
+			value: array_to_cow_simple(value_array),
 		}
 	}
 }
 
-impl<'a, E: FeatureDistance + ToOwned + ?Sized, F: Borrow<E>> DistanceQuery for SliceQuery<'a, E, F> {
+impl<'a, E> DistanceQuery for SliceQuery<'a, E> where [E]: FeatureDistance + ToOwned {
 	fn min_index(&self, offset: usize, len: usize) -> usize {
 		// println!("\tQuery {offset}..{} (+{len})", offset+len);
-		let value: &E = &self.value;
-		debug_assert!(offset.checked_add(len).expect("Index overflow") <= self.features.len(), "Index {offset}+{len}={} outside valid range 0..{}", offset+len, self.features.len());
+		let value: &[E] = &self.value;
+		debug_assert!(offset.checked_add(len).expect("Index overflow") < self.features.len(), "Index {offset}+{len}={} outside valid range 0..={}", offset+len, self.features.len());
 
-		(0..len)
-			.map(|idx| {
-				let reference = self.features[offset + idx].borrow();
-				let dist = value.distance(reference);
-				(idx, dist)
-			})
+		let chunks = self.features
+			.chunks_exact(self.feature_len);
+		debug_assert!(chunks.remainder().is_empty());
+		chunks.skip(offset)
+			.take(len)
+			.map(|reference| value.distance(reference))
+			.enumerate()
 			.min_by(|(_, d1), (_, d2)| DistanceOrd::compare(d1, d2))
 			.expect("Empty length")
 			.0
@@ -156,6 +173,7 @@ impl<'a, E: FeatureDistance + ToOwned + ?Sized, F: Borrow<E>> DistanceQuery for 
 
 /// Like [Ord] but implemented for floats
 pub(super) trait DistanceOrd {
+	/// Compare two distances
 	fn compare(&self, other: &Self) -> Ordering;
 }
 

@@ -1,3 +1,10 @@
+//! Architecture-specific features and intrinsics
+
+// Re-export architecture-specific intrinsics
+#[cfg(target_arch = "aarch64")]
+pub(super) use core::arch::aarch64 as aarch_intrinsics;
+#[cfg(target_arch = "arm")]
+pub(super) use core::arch::arm as aarch_intrinsics;
 
 /// Ensure that NEON is available at runtime (debug only)
 /// 
