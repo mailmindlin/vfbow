@@ -1,5 +1,6 @@
 //! Helpers for converting byte slices
 
+/// Error from [`convert_le`] when the slice length is not a multiple of the target type size
 #[derive(Clone, Copy, Debug, thiserror::Error)]
 #[error("Source slice length is not a multiple of element size")]
 pub(crate) struct InvalidChunkSizeError;
@@ -33,10 +34,21 @@ fn convert_chunks<'a, T, const N: usize, F: 'a + Fn([u8; N]) -> T>(src: &'a [u8]
 }
 
 
-pub(crate) fn convert_le<'a, T: 'a, const N: usize>(src: &'a [u8]) -> Result<impl Iterator<Item = T> + 'a, InvalidChunkSizeError>
+/// Convert a byte slice to a iterator of values of type T, assuming little-endian byte order
+/// 
+/// Returns an error if the length of the slice is not a multiple of the size of T
+pub(crate) fn convert_le<'a, T, const N: usize>(src: &'a [u8]) -> Result<impl Iterator<Item = T> + 'a, InvalidChunkSizeError>
 where
+    // Needed for the iterator lifetime
+    T: 'a,
+    // We can make the cleaner when generic_const_exprs is stable
     T: FromLEBytes<Bytes = [u8; N]>,
 {
+    // This is a static assertion that N == size_of::<T>()
+    const {
+        let () = assert!(N == size_of::<T>(), "N must equal size_of::<T>()");
+    }
+    // And this is the runtime equivalent, just to be safe
     debug_assert_eq!(N, size_of::<T>());
 
     convert_chunks(src, T::from_le_bytes)
@@ -47,6 +59,32 @@ fn test_convert_f32() {
     let bytes = [0, 0, 0, 0, 0, 0, 0, 64]; // two f32: 0.0 and 2.0
     let result: Vec<f32> = convert_le(&bytes).unwrap().collect();
     assert_eq!(&result, &[0.0f32, 2.0f32]);
+}
+
+#[test]
+fn test_invalid_multiple() {
+    let not_multiple_of_4 = [0, 1, 2, 3, 4, 5];
+    assert!(convert_le::<u32, _>(&not_multiple_of_4).is_err(), "Should have returned an error");
+    assert!(convert_le::<u32, _>(&[]).is_ok(), "Zero is valid");
+}
+
+/**
+ * This tests the static assertion in [`convert_le`].
+ * You should get a compile error if you enable this test.
+ */
+#[cfg(false)]
+#[test]
+fn test_invalid_args() {
+    #[repr(transparent)]
+    struct BadType(u32);
+    impl FromLEBytes for BadType {
+        type Bytes = [u8; 3];
+        fn from_le_bytes(_: Self::Bytes) -> Self {
+            panic!("should not be called")
+        }
+    }
+
+    let _ = convert_le::<BadType, 3>(&[1,2,3,4]);
 }
 
 #[test]
@@ -71,6 +109,7 @@ fn test_convert_u64() {
 pub(crate) trait FromLEBytes {
     /// Byte array type (should be `[u8; size_of::<Self>()]`)
     type Bytes;
+    /// Read Self from little-endian bytes
     fn from_le_bytes(bytes: Self::Bytes) -> Self;
 }
 
