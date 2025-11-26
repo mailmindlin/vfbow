@@ -178,6 +178,7 @@ impl From<VocabularyReadOptions> for ReadFbowOptions {
 	}
 }
 
+/// Like `assert!` but returns InvalidData error
 macro_rules! validate {
 	($cond:expr, $($arg:tt)*) => {
 		if !$cond {
@@ -186,6 +187,9 @@ macro_rules! validate {
 	}
 }
 
+/// Parse descriptor name
+/// 
+/// It's stored as fixed-size, null-terminated UTF8 bytes
 fn parse_desc_name(desc_bytes: &[u8; 50], options: &ReadFbowOptions) -> io::Result<ArrayString<50>> {
 	let handle_utf8 = |e: Utf8Error| {
 		warning!(options.invalid_name, e);
