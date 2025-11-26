@@ -105,39 +105,27 @@ fn l1_x64(reference: &[u64; 8], feature: &[u64; 8]) -> u32 {
 	+ (reference[7] ^ feature[7]).count_ones()
 }*/
 
-#[cfg(any(target_arch="aarch64", target_arch="arm"))]
-#[target_feature(enable = "neon")]
-pub(super) unsafe fn l1_neon_array<const N: usize>(reference: &[std::arch::aarch64::uint8x16_t; N], feature: &[std::arch::aarch64::uint8x16_t; N]) -> u32 {
-	use std::arch::aarch64::*;
-	let mut acc = vdupq_n_u16(0);
-	//TODO: fix for overflows when N>2**16
-	for i in 0..N {
-		let delta = veorq_u8(reference[i], feature[i]);
-		let counts = vcntq_u8(delta);
-		acc = vpadalq_u8(acc, counts);
-	}
-	
-	// Pairwise reduce
-	let acc = vpaddlq_u16(acc);
-	let acc  = vadd_u32(vget_high_u32(acc), vget_low_u32(acc));
-	vget_lane_u32::<0>(vpadd_u32(acc, acc))
-}
+use crate::features::util::specialize_array;
 
 #[cfg(any(target_arch="aarch64", target_arch="arm"))]
-#[target_feature(enable = "neon")]
-pub(super) unsafe fn l1_neon_slice(reference: &[std::arch::aarch64::uint8x16_t], feature: &[std::arch::aarch64::uint8x16_t]) -> u32 {
-	use std::arch::aarch64::*;
-	assert_eq!(reference.len(), feature.len());
-	let mut acc = vdupq_n_u16(0);
-	//TODO: fix for overflows when N>2**16
-	for i in 0..reference.len() {
-		let delta = veorq_u8(reference[i], feature[i]);
-		let counts = vcntq_u8(delta);
-		acc = vpadalq_u8(acc, counts);
+use super::arch::aarch_intrinsics::{uint8x16_t, vdupq_n_u16, veorq_u8, vcntq_u8, vpadalq_u8, vpaddlq_u16, vadd_u32, vget_high_u32, vget_low_u32, vget_lane_u32, vpadd_u32};
+
+specialize_array! {
+	/// NEON implementation for L1 (Hamming) distance
+	#[cfg(any(target_arch="aarch64", target_arch="arm"))]
+	#[target_feature(enable = "neon")]
+	pub(super) fn neon<N>(reference: &[uint8x16_t], feature: &[uint8x16_t]) -> u32 {
+		let mut acc = vdupq_n_u16(0);
+		//TODO: fix for overflows when N>2**16
+		for i in 0..N {
+			let delta = veorq_u8(reference[i], feature[i]);
+			let counts = vcntq_u8(delta);
+			acc = vpadalq_u8(acc, counts);
+		}
+		
+		// Pairwise reduce
+		let acc = vpaddlq_u16(acc);
+		let acc  = vadd_u32(vget_high_u32(acc), vget_low_u32(acc));
+		vget_lane_u32::<0>(vpadd_u32(acc, acc))
 	}
-	
-	// Pairwise reduce
-	let acc = vpaddlq_u16(acc);
-	let acc  = vadd_u32(vget_high_u32(acc), vget_low_u32(acc));
-	vget_lane_u32::<0>(vpadd_u32(acc, acc))
 }

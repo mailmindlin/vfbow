@@ -1,5 +1,7 @@
 //! L2 (Euclidean) distance computation
 
+use super::util::specialize_array;
+
 /// Helper trait to write generic loops for L2 distance computation
 pub(super) trait AccumulateL2 {
 	/// Accumulator type
@@ -40,60 +42,40 @@ impl<T: ElementL2> AccumulateL2 for T {
 	fn finish(acc: Self::Accumulator) -> f32 { acc }
 }
 
-pub(super) fn l2_slice(reference: &[f32], feature: &[f32]) -> f32 {
-	assert_eq!(reference.len(), feature.len());
-	
-	//substract, multiply and accumulate
-	let mut sum = 0.;
-	for i in 0..reference.len() {
-		let diff = feature[i] - reference[i];
-		sum += diff * diff
+specialize_array! {
+	/// Compute the L2 distance
+	pub(super) fn generic<N>(reference: &[f32], feature: &[f32]) -> f32 {
+		// Substract, multiply and accumulate
+		let mut sum: f32 = 0.;
+		for i in 0..N {
+			let diff = feature[i] - reference[i];
+			sum += diff * diff
+		}
+		sum
 	}
-	sum
 }
 
-pub(super) fn l2_array<const N: usize>(reference: &[f32; N], feature: &[f32; N]) -> f32 {
-	//substract, multiply and accumulate
-	let mut sum = 0.;
-	for i in 0..N {
-		let diff = feature[i] - reference[i];
-		sum += diff * diff
-	}
-	sum
-}
 
-#[cfg(target_arch = "aarch64")]
-#[target_feature(enable = "neon")]
-pub(super) unsafe fn l2_neon_slice(reference: &[std::arch::aarch64::float32x4_t], feature: &[std::arch::aarch64::float32x4_t]) -> f32 {
-	use std::arch::aarch64::{vadd_f32, vdupq_n_f32, vget_high_f32, vget_low_f32, vmlaq_f32, vpadd_f32, vsubq_f32, vget_lane_f32};
-	assert_eq!(reference.len(), feature.len());
-	
-	//substract, multiply and accumulate
-	let mut sum = vdupq_n_f32(0.);
-	for i in 0..reference.len() {
-		let diff = vsubq_f32(feature[i], reference[i]);
-		sum = vmlaq_f32(sum, diff, diff);
-	}
-	// Reduce pairwise, twice
-	let sum = vadd_f32(vget_high_f32(sum), vget_low_f32(sum));
-	vget_lane_f32::<0>(vpadd_f32(sum, sum))
-}
+#[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+use super::arch::aarch_intrinsics::{float32x4_t};
 
-#[cfg(target_arch = "aarch64")]
-#[target_feature(enable = "neon")]
-pub(super) unsafe fn l2_neon_array<const N: usize>(reference: &[std::arch::aarch64::float32x4_t; N], feature: &[std::arch::aarch64::float32x4_t; N]) -> f32 {
-	use std::arch::aarch64::{vadd_f32, vdupq_n_f32, vget_high_f32, vget_low_f32, vmlaq_f32, vpadd_f32, vsubq_f32, vget_lane_f32};
-	
-	//substract, multiply and accumulate
-	let mut sum = vdupq_n_f32(0.);
-	for i in 0..N {
-		//TODO: is it worth using get_unchecked here?
-		let diff = vsubq_f32(feature[i], reference[i]);
-		sum = vmlaq_f32(sum, diff, diff);
+specialize_array! {
+	/// Compute the L2 distance between two slices using NEON
+	#[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+	#[target_feature(enable = "neon")]
+	pub(super) fn neon<N>(reference: &[float32x4_t], feature: &[float32x4_t]) -> f32 {
+		use std::arch::aarch64::{vadd_f32, vdupq_n_f32, vget_high_f32, vget_low_f32, vmlaq_f32, vpadd_f32, vsubq_f32, vget_lane_f32};
+		
+		//substract, multiply and accumulate
+		let mut sum = vdupq_n_f32(0.);
+		for i in 0..N {
+			let diff = vsubq_f32(feature[i], reference[i]);
+			sum = vmlaq_f32(sum, diff, diff);
+		}
+		// Reduce pairwise, twice
+		let sum = vadd_f32(vget_high_f32(sum), vget_low_f32(sum));
+		vget_lane_f32::<0>(vpadd_f32(sum, sum))
 	}
-	// Reduce pairwise, twice
-	let sum = vadd_f32(vget_high_f32(sum), vget_low_f32(sum));
-	vget_lane_f32::<0>(vpadd_f32(sum, sum))
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

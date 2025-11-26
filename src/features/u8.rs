@@ -12,7 +12,7 @@ use ndarray::{aview1, Array1, ArrayView1, CowArray};
 use numpy::Ix1;
 
 #[cfg(any(target_arch="aarch64", target_arch="arm"))]
-use super::distance_l1::{l1_neon_array, l1_neon_slice};
+use super::distance_l1;
 use crate::{Deserialize, Serialize, features::shared::ToArray, util::convert::convert_le};
 
 use super::{distance_l1::AccumulateL1, shared::{is_slice_packed, AlignQuery, FeatureDistance, FromArray, ValidZeroBits, L1}, DistanceQuery, FeatureType, Features, FeaturesGeneric};
@@ -39,7 +39,7 @@ impl FeatureDistance for [uint8x16_t] {
 	fn distance(&self, other: &Self) -> Self::Distance {
 		super::arch::debug_ensure_neon();
 		unsafe {
-			l1_neon_slice(self, other)
+			distance_l1::neon::slice(self, other)
 		}
 	}
 }
@@ -207,7 +207,7 @@ impl<const N: usize, const F: usize> FeatureDistance for TransmuteArray<std::arc
 	fn distance(&self, other: &Self) -> u32 {
 		super::arch::debug_ensure_neon();
 		unsafe {
-			l1_neon_array::<N>(&self.0, &other.0)
+			distance_l1::neon::array::<N>(&self.0, &other.0)
 		}
 	}
 }
