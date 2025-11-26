@@ -6,7 +6,8 @@ pub(crate) use dtype::DescriptorType;
 pub use scoring::Scoring;
 pub use serde::{Serialize, Deserialize};
 
+/// A type that can hash itself
 pub trait SelfHash {
-	/// returns a hash identifying this
+	/// Returns an identifying hash
 	fn hash(&self) -> u64;
 }

@@ -298,6 +298,7 @@ fn limit_results(scores: impl ExactSizeIterator<Item = (usize, f64)>, max_result
 }
 
 impl Database {
+	/// A generic version of [Database::query]
 	fn query_generic<S: ScoringMethods>(&self, query: &Bow, max_results: Option<NonZeroUsize>, max_id: Option<NonZeroUsize>) -> Vec<QueryResult> {
 		let mut scores = HashMap::new();
 		for (word_id, qvalue) in query.iter() {
@@ -331,19 +332,23 @@ impl Database {
 		results
 	}
 
+	/// Query using L1 scoring (see [Database::query])
 	fn query_l1(&self, query: &Bow, max_results: Option<NonZeroUsize>, max_id: Option<NonZeroUsize>) -> Vec<QueryResult> {
 		self.query_generic::<L1>(query, max_results, max_id)
 	}
 
+	/// Query using L2 scoring (see [Database::query])
 	fn query_l2(&self, query: &Bow, max_results: Option<NonZeroUsize>, max_id: Option<NonZeroUsize>) -> Vec<QueryResult> {
 		self.query_generic::<L2>(query, max_results, max_id)
 	}
 
+	/// Query using Chi-squared scoring (see [Database::query])
 	fn query_chi_square(&self, query: &Bow, max_results: Option<NonZeroUsize>, max_id: Option<NonZeroUsize>) -> Vec<QueryResult> {
 		// In the current implementation, we suppose query is not normalized
 		self.query_generic::<ChiSquare>(query, max_results, max_id)
 	}
-	  
+	
+	/// Query using KL-divergence scoring (see [Database::query])
 	fn query_kl(&self, query: &Bow, max_results: Option<NonZeroUsize>, max_id: Option<NonZeroUsize>) -> Vec<QueryResult> {
 		let mut scores = HashMap::new();
 		
@@ -408,6 +413,7 @@ impl Database {
 		limit_results(scores, max_results)
 	}
 	
+	/// Query using Bhattacharyya scoring (see [Database::query])
 	fn query_bhattacharyya(&self, query: &Bow, max_results: Option<NonZeroUsize>, max_id: Option<NonZeroUsize>) -> Vec<QueryResult> {
 		// In the current implementation, we suppose query is not normalized
 		self.query_generic::<Bhattacharyya>(query, max_results, max_id)
@@ -480,6 +486,7 @@ impl Database {
 		  ret.resize(max_results);
 	}*/
 	
+	/// Query with dot product scoring (see [Database::query])
 	fn query_dot(&self, query: &Bow, max_results: Option<NonZeroUsize>, max_id: Option<NonZeroUsize>) -> Vec<QueryResult> {
 		// double value;
 		// if(this->m_voc->getWeightingType() == BINARY)
@@ -489,6 +496,11 @@ impl Database {
 		self.query_generic::<DotProduct>(query, max_results, max_id)
 	}
 
+	/// Query this database with the specified `scoring` method.
+	/// 
+	/// Returns up to `max_results`-many results.
+	/// 
+	/// If `max_id` is specified, only db entries with a lower id are considered
 	pub fn query(&self, query: &Bow, scoring: Scoring, mut max_results: Option<NonZeroUsize>, mut max_id: Option<NonZeroUsize>) -> Vec<QueryResult> {
 		let len = self.len();
 		if len == 0 {
@@ -513,6 +525,7 @@ impl Database {
 		}
 	}
 
+	/// Helper function to transform some features with the vocabulary before querying
 	pub fn query_transform<T: VocabElement>(&self, features: ArrayView2<T>, level: Option<usize>, scoring: Scoring, max_results: Option<NonZeroUsize>, max_id: Option<NonZeroUsize>) -> Result<Vec<QueryResult>, TransformError> {
 		let (query, _) = self.vocabulary.transform(features, level)?;
 		Ok(self.query(&query, scoring, max_results, max_id))

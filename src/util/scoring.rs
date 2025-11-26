@@ -1,3 +1,4 @@
+//! Scoring functions
 
 /// Scoring method
 #[cfg_attr(feature="python", pyo3::pyclass(module="vfbow", eq, eq_int))]
