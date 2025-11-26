@@ -10,6 +10,9 @@ use super::node::{BranchNode, Leaf, TerminalLeaf};
 /// Feature index
 type FIndex = u32;
 
+/// Helper to apply [f32::total_cmp] to the second value of a pair
+/// 
+/// Useful for sorting by some computed value
 fn cmp_f32_pair<T>((_, a): &(T, f32), (_, b): &(T, f32)) -> std::cmp::Ordering {
 	f32::total_cmp(a, b)
 }
@@ -66,10 +69,12 @@ impl<'a, T: DistFunc> InnerParams<'a, T> {
 		centers
 	}
 
+	/// Assign each feature index to 
 	fn assign_to_clusters(&self, findices: &[FIndex], center_features: &[CowArray<'_, T, Ix1>], assignments: &mut [Vec<FIndex>]) {
 		for a in assignments.iter_mut() {
 			a.clear();
 		}
+		// Clear all assignments
 		/*if(omp) {
 			std::vector<std::map<uint32_t,std::list<uint32_t> > >map_assigments_omp(omp_get_max_threads());
 	#pragma omp parallel for
@@ -118,6 +123,9 @@ impl<'a, T: DistFunc> InnerParams<'a, T> {
 		}
 	}
 	
+	/// Recompute the centers of each cluster
+	/// 
+	/// Returns a vector with the same length as `assignments` that contains the mean of the features for each assignment
 	fn recompute_centers(&self, assignments: &[Vec<FIndex>]) -> Vec<Array1<T>> {
 		assignments.iter()
 			.map(|assignment| T::mean_values(&self.features, assignment))

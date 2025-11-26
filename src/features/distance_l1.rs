@@ -1,12 +1,30 @@
+//! L1 (Hamming) distance computations
+
+/// Trait to help write generic code to compute L1 (Hamming) distances
+/// 
+/// The idea here is that we can use this trait to write generic loops like:
+/// ```ignore
+/// let mut acc = T::init();
+/// for (a, b) in reference.iter().zip(feature.iter()) {
+///    acc = a.update(*b, acc);
+/// }
+/// let distance = T::finish(acc);
+/// ```
 pub(super) trait AccumulateL1 {
+	/// Accumulator type
 	type Accumulator: Sized;
 
+	/// Create initial accumulator value (zero)
 	fn init() -> Self::Accumulator;
+	/// Update accumulator with distance between two elements
 	fn update(self, other: Self, acc: Self::Accumulator) -> Self::Accumulator;
+	/// Finalize and return distance from accumulator
 	fn finish(acc: Self::Accumulator) -> u32;
 }
 
+/// An element that can compute L1 distance
 pub(super) trait ElementL1 {
+	/// Compute L1 distance between two elements
 	fn distance_l1(self, other: Self) -> u32;
 }
 

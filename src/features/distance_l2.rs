@@ -1,12 +1,21 @@
+//! L2 (Euclidean) distance computation
+
+/// Helper trait to write generic loops for L2 distance computation
 pub(super) trait AccumulateL2 {
+	/// Accumulator type
 	type Accumulator: Sized;
 
+	/// Create initial accumulator value (zero)
 	fn init() -> Self::Accumulator;
+	/// Update accumulator with distance between two elements
 	fn update(self, other: Self, acc: Self::Accumulator) -> Self::Accumulator;
+	/// Finalize and return distance from accumulator
 	fn finish(acc: Self::Accumulator) -> f32;
 }
 
+/// An element for which L2 distance can be computed
 pub(super) trait ElementL2 {
+	/// Compute the squared L2 distance between two elements
 	fn distance_l2(self, other: Self) -> f32;
 }
 

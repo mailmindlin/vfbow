@@ -6,14 +6,21 @@ use rayon::iter::Either;
 
 use crate::{util::{scoring::LNorm, Scoring, SelfHash}, Bow, Features};
 
+/// What kind of view we're pretending to be
+/// 
+/// (Lets us write a single adapter for keys/values/items views)
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ViewMode {
+	/// Key set
 	Keys,
+	/// Value collection
 	Values,
+	/// Item list
 	Items,
 }
 
 impl ViewMode {
+	/// Get the default sort mode for this view
 	const fn default_sort(&self) -> SortMode {
 		match self {
 			ViewMode::Keys => SortMode::Keys,
@@ -28,13 +35,16 @@ impl ViewMode {
 /// Lets us use [PyDictView] for both [Bow] and [Features].
 #[derive(Debug)]
 enum AnyDictPy {
+	/// Wrapping [Bow]
 	Bow(Py<Bow>),
+	/// Wrapping [Features]
 	Features(Py<Features>),
 	/// Value if GC'd
 	None,
 }
 
 impl AnyDictPy {
+	/// Clone the reference
 	fn clone_ref(&self, py: Python) -> Self {
 		match self {
 			Self::Bow(b) => Self::Bow(b.clone_ref(py)),
@@ -42,6 +52,7 @@ impl AnyDictPy {
 			Self::None => Self::None,
 		}
 	}
+	/// Traverse for GC
 	fn traverse(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
 		match self {
 			AnyDictPy::Bow(b) => visit.call(b),
@@ -53,6 +64,9 @@ impl AnyDictPy {
 		*self = Self::None;
 	}
 
+	/// Get the internal Python reference
+	/// 
+	/// Panics if already GC'd
 	fn into_py(self) -> Either<Py<Bow>, Py<Features>> {
 		match self {
 			Self::Bow(b) => Either::Left(b),
@@ -60,6 +74,9 @@ impl AnyDictPy {
 			Self::None => panic!("Use after GC"),
 		}
 	}
+	/// Get a reference to the internal Rust object
+	/// 
+	/// Panics if already GC'd
 	fn as_ref(&self) -> Either<&Bow, &Features> {
 		match self {
 			AnyDictPy::Bow(b) => Either::Left(b.get()),
@@ -69,29 +86,44 @@ impl AnyDictPy {
 	}
 }
 
-/// Key/value/item view for 
 #[pyclass(name="_PyDictView", sequence)]
+/// Key/value/item view for both [Bow] and [Features]
 #[derive(Debug)]
 struct PyDictView {
+	/// Base Python object ([Bow] or [Features])
 	base: AnyDictPy,
+	/// What kind of view this is (keys/values/items)
 	mode: ViewMode,
+	/// Has the order been reversed?
 	reversed: bool,
 }
 
+/// Type that can be converted to Python list or ndarray. Generic over [Bow] and [Features], and keys/values/entries.
+/// 
+/// It doesn't contain any Python references itself, so it can be processed outside the GIL.
 #[derive(IntoPyObject)]
 enum ListOutput {
+	/// Key storage (same for [Bow] and [Features])
 	Keys(Vec<u32>),
+	/// [Bow] values
 	ValueB(Vec<f32>),
+	/// [Bow] items
 	ItemB(Vec<(u32, f32)>),
+	/// [Features] values
 	ValueF(Vec<Vec<u32>>),
+	/// [Features] items
 	ItemF(Vec<(u32, Vec<u32>)>),
 }
 
 impl ListOutput {
 	fn to_numpy<'py>(self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+	/// Convert to numpy array or something
 		Ok(match self {
+			// ndarray[uint32, [int]]
 			ListOutput::Keys(items) => PyArray1::from_vec(py, items).into_any(),
+			// ndarray[float32, [int]]
 			ListOutput::ValueB(items) => PyArray1::from_vec(py, items).into_any(),
+			// tuple[ndarray[uint32, [int]], ndarray[float32, [int]]]
 			ListOutput::ItemB(items) => {
 				let mut keys = Vec::with_capacity(items.len());
 				let mut values = Vec::with_capacity(items.len());
@@ -104,13 +136,15 @@ impl ListOutput {
 				let values = PyArray1::from_vec(py, values);
 				(keys, values).into_bound_py_any(py)?
 			}
-			// I don't *think* all the values are the same length
+			// list[ndarray[uint32, [int]]]
 			ListOutput::ValueF(items) => {
+				// I don't *think* all the values are the same length
 				let items = items.into_iter()
 					.map(|item| PyArray1::from_vec(py, item))
 					.collect::<Vec<_>>();
 				items.into_bound_py_any(py)?
 			},
+			// tuple[ndarray[uint32, [int]], list[ndarray[uint32, [int]]]]
 			ListOutput::ItemF(items) => {
 				let mut keys = Vec::with_capacity(items.len());
 				let mut values = Vec::with_capacity(items.len());
@@ -127,6 +161,7 @@ impl ListOutput {
 }
 
 impl PyDictView {
+	/// Convert to Python primitive type
 	fn to_py<'py>(&self, py: Python<'py>, sorted: SortModeRaw) -> PyResult<ListOutput> {
 		let sorted = SortMode::from(sorted, self.mode.default_sort());
 
@@ -355,6 +390,9 @@ impl PyDictView {
 			.into_py()
 	}
 
+	/// Get a view that contains all these elements but reversed
+	/// 
+	/// O(1) runtime
 	fn __reversed__(&self, py: Python) -> Self {
 		Self {
 			base: self.base.clone_ref(py),
@@ -363,6 +401,7 @@ impl PyDictView {
 		}
 	}
 
+	/// Test if `key` is contained in this view
 	fn __contains__<'py>(&self, py: Python<'py>, key: Bound<'py, PyAny>) -> PyResult<bool> {
 		match self.contains_inner(py, key) {
 			Ok(result) => Ok(result),
@@ -386,6 +425,7 @@ impl PyDictView {
 		}
 	}
 
+	/// Iterate over entries
 	fn __iter__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
 		// Delegate to iter(list(self))
 		self.to_list(py, SortModeRaw::None)?
@@ -393,6 +433,7 @@ impl PyDictView {
 			.call_method0("__iter__")
 	}
 
+	/// Get representation string
 	fn __repr__(&self) -> String {
 		format!("{self:?}")
 	}
@@ -404,21 +445,26 @@ impl PyDictView {
 			.and_then(|r| r.to_numpy(py))
 	}
 
+	/// Convert to list
 	#[pyo3(signature = (sorted = SortModeRaw::None))]
 	fn to_list<'py>(&self, py: Python<'py>, sorted: SortModeRaw) -> PyResult<ListOutput> {
 		self.to_py(py, sorted)
 	}
 	
+	/// GC traversal
 	fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
 		self.base.traverse(visit)
 	}
 
 	fn __clear__(&mut self) {
 		self.base.clear();
+	/// GC cleanup
 	}
 }
 
 /// Like [SortMode] but with default option
+/// 
+/// Helper for parsing Python arguments.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum SortModeRaw {
 	/// Sort by keys
@@ -431,9 +477,12 @@ enum SortModeRaw {
 	None,
 }
 
+/// We have a few parameters that consume either a str or bool, and this helps parse them
 #[derive(FromPyObject)]
 enum StringOrBool<'py> {
+	/// String reference
 	String(Bound<'py, PyString>),
+	/// Boolean value
 	Bool(bool),
 }
 
@@ -472,6 +521,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for SortModeRaw {
 	}
 }
 
+/// How should we sort the output
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum SortMode {
 	/// Sort by keys
@@ -482,6 +532,7 @@ enum SortMode {
 	None,
 }
 impl SortMode {
+	/// Convert from [SortModeRaw], using the provided default for [`Default`](SortModeRaw::Default).
 	const fn from(raw: SortModeRaw, default: SortMode) -> Self {
 		match raw {
 			SortModeRaw::Default => default,
@@ -504,6 +555,7 @@ impl Bow {
 		self.len()
 	}
 
+	/// `repr(self)`
 	fn __repr__(&self) -> String {
 		format!("{self:?}")
 	}
@@ -668,17 +720,24 @@ impl Bow {
 
 #[pyclass]
 struct IntersectFeatures {
+	/// Node IDs present in all features
 	node_ids: Vec<u32>,
+	/// Features being intersected
 	features: Vec<Py<Features>>,
 }
 
 impl IntersectFeatures {
+	/// Compute intersection between two [Features] or [IntersectFeatures]
 	fn intersect<'py>(py: Python<'py>, a: FeaturesLike<'py>, b: FeaturesLike<'py>) -> PyResult<Self> {
+		/// Rust reference associated with a [FeaturesLike]
 		enum Raw<'a> {
+			/// Reference to [Features]
 			Features(&'a Features),
+			/// Reference to [IntersectFeatures]
 			Intersect(&'a IntersectFeatures),
 		}
 		impl<'a> Raw<'a> {
+			/// Count Python references
 			fn num_refs(&self) -> usize {
 				match self {
 					Self::Features(..) => 1,
@@ -760,15 +819,19 @@ impl IntersectFeatures {
 
 #[pymethods]
 impl IntersectFeatures {
+	/// True if not empty
 	fn __bool__(&self) -> bool {
 		!self.node_ids.is_empty()
 	}
+	/// Number of nodes in intersection
 	fn __len__(&self) -> usize {
 		self.node_ids.len()
 	}
+	/// List of node ids
 	fn keys(&self) -> &[u32] {
 		&self.node_ids
 	}
+	/// Get the intersected values. Index order: result[node_index][features_index][feature_index]
 	fn values(&self, py: Python<'_>) -> Vec<Vec<Vec<u32>>> {
 		if self.node_ids.is_empty() || self.features.is_empty() {
 			return Vec::new();
@@ -791,9 +854,11 @@ impl IntersectFeatures {
 	fn __iter__(&self) -> () {
 		todo!();
 	}
+	/// Compute intersection between this and `other`
 	fn __and__<'py>(this: Bound<'py, Self>, py: Python<'py>, other: FeaturesLike<'py>) -> PyResult<IntersectFeatures> {
 		IntersectFeatures::intersect(py, FeaturesLike::Intersection(this), other)
 	}
+	/// GC traversal
 	fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
 		for feature in &self.features {
 			visit.call(feature)?;
@@ -802,28 +867,36 @@ impl IntersectFeatures {
 	}
 	fn __clear__(&mut self) {
 		self.features.clear();
+	/// GC cleanup
 	}
 }
 
+/// Python argument that's either a [Features] or [IntersectFeatures]
 #[derive(FromPyObject)]
 enum FeaturesLike<'py> {
+	/// It's a [Features]
 	Features(Bound<'py, Features>),
+	/// It's a [IntersectFeatures]
 	Intersection(Bound<'py, IntersectFeatures>),
 }
 
 #[pymethods]
 impl Features {
+	/// True if not empty
 	fn __bool__(&self) -> bool {
 		!self.is_empty()
 	}
+	/// Number of features
 	fn __len__(&self) -> usize {
 		self.len()
 	}
 
+	/// String representation
 	fn __repr__(&self) -> String {
 		format!("{self:?}")
 	}
 
+	/// Get feature at index
 	fn __getitem__(&self, key: u32) -> PyResult<Vec<u32>> {
 		match self.as_ref().get(&key) {
 			Some(values) => Ok(values.to_vec()),
@@ -831,6 +904,7 @@ impl Features {
 		}
 	}
 
+	/// Get feature at index, with fallback
 	fn get<'py>(&self, key: u32, default: Bound<'py, PyAny>) -> Either<Vec<u32>, Bound<'py, PyAny>> {
 		match self.as_ref().get(&key) {
 			Some(values) => Either::Left(values.to_vec()),
@@ -858,6 +932,7 @@ impl Features {
 		PyDictView { base: AnyDictPy::Features(this), mode: ViewMode::Items, reversed: false }
 	}
 
+	/// Compute intersection between this and another [Features] or [IntersectFeatures]
 	fn __and__<'py>(this: Bound<'py, Self>, py: Python<'py>, other: FeaturesLike<'py>) -> PyResult<IntersectFeatures> {
 		IntersectFeatures::intersect(py, FeaturesLike::Features(this), other)
 	}

@@ -1,3 +1,4 @@
+//! Module to help generate a [Vocabulary] from a set of features
 mod exec;
 mod feature;
 mod node;

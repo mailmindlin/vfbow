@@ -12,6 +12,7 @@ use crate::{fbow::{Bow, Features}, features::{DistanceQuery, FeatureType, Featur
 pub(crate) use builder::VocabularyBuilder;
 pub use serde::{ParseValidationMode, VocabularyReadOptions};
 
+/// A node in the vocabulary tree
 pub(crate) struct Node {
 	/// Node ID
 	base: u32,
@@ -22,6 +23,7 @@ pub(crate) struct Node {
 }
 
 impl Node {
+	/// Create empty node
 	const fn empty() -> Self {
 		Self {
 			base: 0,
@@ -30,6 +32,7 @@ impl Node {
 		}
 	}
 
+	/// Number of children nodes
 	fn num_children(&self) -> usize {
 		match &self.children {
 			None => 0,
@@ -38,9 +41,10 @@ impl Node {
 	}
 }
 
+/// Vocabulary parameters
 #[derive(Debug)]
 pub(crate) struct VocabularyParams {
-	//descriptor name. May be empty
+	/// Descriptor name. May be empty
 	desc_name: ArrayString<49>, // 49 bytes + null terminator
 	/// Memory alignment of each feature
 	alignment: usize,
@@ -70,6 +74,7 @@ impl VocabularyParams {
 		}
 	}
 
+	/// Set vocabulary parameters
 	pub(crate) fn set(&mut self, aligment: usize, k: u32, desc_type: DescriptorType, desc_size: usize, nblocks: u32, desc_name: &str) {
 		self.set_name(desc_name);
 
@@ -199,6 +204,7 @@ impl Deserialize for VocabularyParams {
 
 /// Main class to represent a vocabulary of visual words
 pub struct Vocabulary {
+	/// Vocabulary parameters
 	params: VocabularyParams,
 	/// Root node
 	root: Node,
@@ -281,7 +287,7 @@ impl Vocabulary {
 		}
 	}
 
-	///returns the descriptor name
+	/// The descriptor name
 	pub fn desc_name(&self) -> &str {
 		&self.params.desc_name
 	}

@@ -1,3 +1,7 @@
+//! U8 feature type and distance functions
+//! 
+//! Supported metrics:
+//! - L1 (Hamming distance)
 use std::{borrow::Cow, io::{IoSliceMut, Write}, mem::MaybeUninit};
 #[cfg(target_arch="aarch64")]
 use std::arch::aarch64::uint8x16_t;
@@ -210,15 +214,24 @@ impl<const N: usize, const F: usize> FeatureDistance for TransmuteArray<std::arc
 
 type Padded8Array<const N: usize, const L: usize> = TransmuteArray<u64, N, L>;
 
+/// Distance query
+/// 
+/// Each variant corresponds to [FeaturesU8]
 #[allow(private_interfaces)]
 pub(crate) enum QueryU8<'a> {
+	/// [FeaturesU8::Neon32]
 	#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 	Neon32(AlignQuery<'a, TransmuteArray<std::arch::aarch64::uint8x16_t, 2, 32>>),
+	/// [FeaturesU8::Neon61]
 	#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 	Neon61(AlignQuery<'a, TransmuteArray<std::arch::aarch64::uint8x16_t, 4, 61>>),
+	/// [FeaturesU8::Array32]
 	Array32(AlignQuery<'a, Packed8Array<4>>),
+	/// [FeaturesU8::Array64]
 	Array64(AlignQuery<'a, Packed8Array<8>>),
+	/// [FeaturesU8::Array61]
 	Array61(AlignQuery<'a, Padded8Array<8, 61>>),
+	/// [FeaturesU8::Generic]
 	Generic(AlignQuery<'a, [u8], Vec<u8>>),
 }
 
@@ -237,6 +250,9 @@ impl<'a> DistanceQuery for QueryU8<'a> {
 	}
 }
 
+/// Storage for [f32] features
+/// 
+/// Contains specializations for common feature sizes and CPU features
 #[allow(private_interfaces)]
 pub(crate) enum FeaturesU8 {
 	/// ARM NEON `[uint8x16; 4]` for ORB
@@ -252,6 +268,7 @@ pub(crate) enum FeaturesU8 {
 	Array64(Vec<Packed8Array<8>>),
 	/// Store as `[u64; 8]` with padding, for AKAZE
 	Array61(Vec<Padded8Array<8, 61>>),
+	/// Generic storage (not specialized)
 	//TODO: Generic64
 	Generic {
 		feature_len: usize,
@@ -261,6 +278,7 @@ pub(crate) enum FeaturesU8 {
 }
 
 impl FeaturesU8 {
+	/// Feature size
 	pub(super) fn feature_len(&self) -> usize {
 		match self {
 			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
@@ -274,6 +292,7 @@ impl FeaturesU8 {
 		}
 	}
 
+	/// Get a string representing the kernel used for storage/computation (mostly to check if a kernel is being used)
 	pub(super) fn storage(&self) -> &'static str {
 		match self {
 			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
@@ -287,6 +306,7 @@ impl FeaturesU8 {
 		}
 	}
 
+	/// Number of features
 	pub(super) fn len(&self) -> usize {
 		match self {
 			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
@@ -300,6 +320,7 @@ impl FeaturesU8 {
 		}
 	}
 
+	/// Convert to Python ndarray
 	#[cfg(feature="python")]
 	pub(super) fn to_ndarray<'a>(&self, py: pyo3::Python<'a>) -> pyo3::PyResult<pyo3::Bound<'a, numpy::PyArray2<u8>>> {
 		match self {

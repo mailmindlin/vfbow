@@ -32,6 +32,7 @@ impl DirectIndex {
 	}
 }
 
+/// A single entry in [InvertedEntries]
 #[derive(Clone, Copy, Debug)]
 struct InvertedEntry {
 	entry_id: usize,
@@ -39,6 +40,7 @@ struct InvertedEntry {
 }
 
 
+// Store the reverse lookup
 /// Invariant: all inner vectors must be sorted by [entry_id](InvertedEntry::entry_id) ascending
 #[derive(Clone, Debug)]
 struct InvertedEntries(Vec<InvertedEntry>);
@@ -64,7 +66,9 @@ impl<'a> IntoIterator for &'a InvertedEntries {
 }
 
 impl InvertedEntries {
+	/// Empty constructor
 	fn new() -> Self { Self(Vec::new()) }
+	/// Size of inverted index
 	fn len(&self) -> usize {
 		self.0.len()
 	}
@@ -98,6 +102,7 @@ impl InvertedEntries {
 	}
 }
 
+/// A database can be used to keep track of previously-seen features and query them
 #[cfg_attr(feature="python", pyo3::pyclass(module="vfbow"))]
 pub struct Database {
 	/// Associated vocabulary
@@ -120,6 +125,7 @@ pub struct QueryResult {
 	pub id: usize, //TODO: make this u32?
 }
 impl QueryResult {
+	/// Constructor
 	fn new(id: usize, score: f64) -> Self {
 		assert!(score.is_finite(), "Score must be finite");
 		Self { id, score }
@@ -194,6 +200,7 @@ impl Database {
 		Some(self.levels)
 	}
 
+	/// Get the features for an entry
 	pub fn features(&self, entry_id: usize) -> Option<&Features> {
 		match &self.direct {
 			DirectIndex::CountId(..) => None,
@@ -201,6 +208,9 @@ impl Database {
 		}
 	}
 
+	/// Clear all stored features
+	/// 
+	/// Doesn't mutate the vocabulary
 	pub fn clear(&mut self) {
 		self.direct.clear();
 		for i in &mut self.inverted {
@@ -208,6 +218,9 @@ impl Database {
 		}
 	}
 
+	/// Transform some features and insert them in the database.
+	/// 
+	/// Returns the entry id, bag-of-words, the transformed features
 	pub fn insert_transform<T: VocabElement>(&mut self, features: ArrayView2<T>) -> Result<(usize, Bow, Cow<'_, Features>), TransformError> {
 		let (bow, bow2) = self.vocabulary.transform(features, Some(self.levels))?;
 		let mut fv = Cow::Owned(bow2);
@@ -215,13 +228,18 @@ impl Database {
 		Ok((entry_id, bow, fv))
 	}
 
+	/// Insert some features into this database
+	/// 
+	/// If `fv` is a [`Cow::Owned`] a clone MAY be elided by taking it and replacing it with a reference
 	pub fn insert<'a>(&'a mut self, bow: &Bow, fv: &mut Cow<'a, Features>) -> usize {
-		// update direct file
+		// Update direct file
 		let entry_id = match &mut self.direct {
 			DirectIndex::Direct(vec) => {
 				let id = vec.len();
 				match fv {
 					Cow::Owned(f) => {
+						// We prevent cloning the features
+						// Temporarily replaces it with an empty Features, but 
 						vec.push(std::mem::take(f));
 						*fv = Cow::Borrowed(vec.last().unwrap());
 					},
@@ -238,8 +256,9 @@ impl Database {
 			}
 		};
 
-		// update inverted file
+		// Update inverted file
 		for (word_id, word_weight) in bow.iter() {
+			//TODO: should we do anything for OOB error here? Or is a panic justified?
 			self.inverted[word_id as usize].push(entry_id, word_weight);
 		}
 		entry_id
@@ -500,6 +519,7 @@ impl Database {
 	}
 }
 
+/// Magic number to validate serialization version
 const DB_SER_VERSION: u64 = 0x8a6f8867c2a89411;
 
 impl Serialize for Database {

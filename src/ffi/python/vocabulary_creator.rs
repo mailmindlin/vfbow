@@ -18,10 +18,12 @@ impl VocabularyCreatorParams {
 		Self { k, L, nthreads, max_iters, verbose }
 	}
 
+    /// String description
     fn __str__(&self) -> String {
         format!("{self:?}")
     }
 
+    /// String representation
 	fn __repr__(&self) -> String {
         // Convert to Python reprs
         //TODO: proc macro for this?
@@ -56,13 +58,18 @@ impl VocabularyCreatorParams {
 	}
 }
 
+/// [VocabularyCreatorParams] that may be either a bound Python object or a native Rust value
 enum MaybeBoundParams {
+    /// Bound Python object
     Bound(Py<VocabularyCreatorParams>),
+    /// Native Rust value
     Value(VocabularyCreatorParams),
 }
 
+/// Vocabulary factory
 #[pyclass(module="vfbow", name="VocabularyCreator")]
 pub(super) struct PyVocabularyCreator {
+    /// Vocabulary creation parameters
     params: MaybeBoundParams,
 }
 
@@ -102,10 +109,12 @@ impl PyVocabularyCreator {
 		Self { params: MaybeBoundParams::Value(params) }
 	}
 
+    /// Mutable reference to parameters
 	#[getter]
 	fn params<'py>(&mut self, py: Python<'py>) -> PyResult<Py<VocabularyCreatorParams>> {
         match &self.params {
             MaybeBoundParams::Value(params) => {
+                // Upgrade to Python reference (so mutations stick)
                 let res = Py::new(py, params.clone())?;
                 self.params = MaybeBoundParams::Bound(res.clone_ref(py));
                 Ok(res)
@@ -126,6 +135,7 @@ impl PyVocabularyCreator {
         result.map(|voc| voc.into())
 	}
 
+    /// GC traversal
 	fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
 		if let MaybeBoundParams::Bound(bound) = &self.params {
             visit.call(bound)?;
@@ -133,6 +143,7 @@ impl PyVocabularyCreator {
         Ok(())
 	}
 
+    /// Clear GC references
 	fn __clear__(&mut self) {
 		if matches!(&self.params, MaybeBoundParams::Bound(..)) {
             // We could add a variant for 'cleared' but don't need to

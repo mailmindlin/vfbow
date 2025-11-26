@@ -1,8 +1,12 @@
+//! Runtime dtypes
 use std::fmt::{Display, Formatter};
 
+/// A dtype that's supported for descriptors
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DescriptorType {
+	/// [u8]
 	Uint8 = 0,
+	/// [f32]
 	Float32 = 5,
 }
 
@@ -25,6 +29,9 @@ impl From<DescriptorType> for u32 {
 	}
 }
 
+/// A dtype isn't supported as a descriptor
+/// 
+/// See [`<DescriptorType as TryFrom>::try_from`]
 #[derive(Clone, Copy, Debug, thiserror::Error)]
 #[error("Invalid dtype: {0}")]
 pub struct InvalidDescriptorType(pub u32);
@@ -42,6 +49,7 @@ impl TryFrom<u32> for DescriptorType {
 }
 
 impl DescriptorType {
+	/// Size (in bytes) of an element of this type
 	pub(crate) const fn element_size(&self) -> usize {
 		match self {
 			DescriptorType::Float32 => size_of::<f32>(),

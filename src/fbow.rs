@@ -1,3 +1,4 @@
+//! Contains [Bag of Words](Bow) and [Features] structures
 
 use std::{collections::{hash_map::Entry, HashMap}, fmt::Debug, hash::Hash, io, iter::FusedIterator};
 
@@ -7,11 +8,14 @@ use crate::util::{Deserialize, Scoring, SelfHash, Serialize, convert::convert_le
 /// 
 /// Full iteration is O(min(cap_a + len_a, cap_b + len_b))
 struct ZipValues<'a, K, V> {
+	/// Iterator over items of one HashMap
 	items: std::collections::hash_map::Iter<'a, K, V>,
+	/// Other HashMap that we pull the associated values from
 	lookup: &'a HashMap<K, V>,
 }
 
 impl<'a, K, V> ZipValues<'a, K, V> {
+	/// Constructor to zip two [HashMap]s. Does not preserve order.
 	fn new(a: &'a HashMap<K, V>, b: &'a HashMap<K, V>) -> Self {
 		// Iterate over smaller map
 		let (smol, big) = if a.capacity() + a.len() <= b.capacity() + b.len() {
@@ -55,6 +59,11 @@ impl<'a, K: Eq + Hash, V: Copy> Iterator for ZipValues<'a, K, V> {
 	}
 }
 
+/// Apply `f` to each value in `a` (and the corresponding value in `b` if available).
+/// 
+/// The `filter` is applied ONLY to values from `a`.
+/// 
+/// Helper for computing some Bow scores
 fn values_left<'a, K: Eq + Hash, V: Copy>(a: &'a HashMap<K, V>, b: &'a HashMap<K, V>, filter: impl Fn(V) -> bool, mut f: impl FnMut(V, Option<V>)) {
 	for (key, &value1) in a.iter() {
 		if !filter(value1) {
@@ -115,6 +124,7 @@ impl Bow {
 		}
 	}
 
+	/// Iterator over shared values (those with keys in both Bows)
 	fn zip<'a>(&'a self, other: &'a Self) -> ZipValues<'a, u32, f32> {
 		ZipValues::new(&self.0, &other.0)
 	}
@@ -334,6 +344,7 @@ impl Features {
 		Self(HashMap::with_capacity(capacity))
 	}
 
+	/// Insert key/value pair
 	pub(crate) fn insert(&mut self, key: u32, value: u32) {
 		match self.0.entry(key) {
 			std::collections::hash_map::Entry::Occupied(mut entry) => {

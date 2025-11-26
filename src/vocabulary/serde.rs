@@ -1,3 +1,4 @@
+//! Serialization/deserialization of vocabularies
 mod fbow;
 
 use std::{collections::VecDeque, io::{self, Read, Write}};
@@ -6,8 +7,10 @@ use crate::{features::FeaturesGeneric, util::{serde::{write_u32, write_u32ish}, 
 
 use super::Vocabulary;
 
+/// Magic number that fbow files start with
 const FBOW_MAGIC: u64 = 55824124;
-const VFBOW_MAGIC: u64 = 5546449913086866150;
+/// Magic number that vfbow files start with
+const VFBOW_MAGIC: u64 = 0x4CF8_F2CF_4209_F2E6;
 
 // We write in VFBOW format
 impl Serialize for Vocabulary {

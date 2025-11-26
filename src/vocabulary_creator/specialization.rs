@@ -7,10 +7,14 @@ use crate::{features::FeatureType, util::DescriptorType};
 
 use super::feature::FeatureInfo;
 
+/// Element that can be part of a Vocabulary
 #[allow(private_bounds)]
 pub trait VocabElement: DistFunc + FeatureType + Clone + Zero + Debug {
+	/// Minimum alignment
 	const MIN_ALIGNMENT: usize;
+	/// Runtime dtype
 	const TYPE: DescriptorType;
+	/// Preferred alignment (this checks for CPU features and MAY change between executions)
 	fn prefer_alignment(_ncols: NonZeroUsize) -> usize {
 		Self::MIN_ALIGNMENT
 	}
@@ -105,11 +109,15 @@ impl VocabElement for f32 {
 }
 
 
+/// Distance function (vary over dtype)
 pub(super) trait DistFunc: Sized {
+	/// Compute the distance between two vectors
 	fn dist_func(a: ArrayView1<Self>, b: ArrayView1<Self>) -> f32;
+	/// Compute the mean of the features specified by `indices`
 	fn mean_values(features: &FeatureInfo<Self>, indices: &[u32]) -> Array1<Self>;
 }
 
+/// L2 distance for f32
 impl DistFunc for f32 {
 	fn dist_func(a: ArrayView1<Self>, b: ArrayView1<Self>) -> f32 {
 		Dot::dot(&a, &b)
@@ -120,6 +128,7 @@ impl DistFunc for f32 {
 	}
 }
 
+/// L1 distance for integers
 impl DistFunc for u8 {
 	fn dist_func(a: ArrayView1<Self>, b: ArrayView1<Self>) -> f32 {
 		assert_eq!(a.len(), b.len());

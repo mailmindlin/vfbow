@@ -67,7 +67,9 @@ fn test_convert_u64() {
     assert_eq!(&result, &[1u64, 0xFF00000000000002u64]);
 }
 
+/// Helper trait for types that can be constructed from little-endian byte slices
 pub(crate) trait FromLEBytes {
+    /// Byte array type (should be `[u8; size_of::<Self>()]`)
     type Bytes;
     fn from_le_bytes(bytes: Self::Bytes) -> Self;
 }

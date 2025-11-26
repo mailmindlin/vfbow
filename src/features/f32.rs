@@ -1,3 +1,8 @@
+//! F32 feature type and distance functions
+//! 
+//! Supported metrics:
+//! - L2 (Euclidean distance)
+
 #[cfg(target_arch="aarch64")]
 use std::arch::{is_aarch64_feature_detected, aarch64::float32x4_t};
 #[cfg(target_arch="arm")]
@@ -228,22 +233,33 @@ impl<const N: usize> FeatureDistance for TransmuteArray<float32x4_t, N> {
 }
 
 
-
+/// Query for f32 features
+/// 
+/// Each variant corresponds to a variant in [FeaturesF32]
+#[allow(private_interfaces)]
 pub(crate) enum QueryF32<'a> {
+	/// Corresponds to [FeaturesF32::Neon64]
 	#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 	Neon64(AlignQuery<'a, TransmuteArray<float32x4_t, 16>>),
+	/// Corresponds to [FeaturesF32::Sse64]
 	#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 	Sse64(AlignQuery<'a, TransmuteArray<std::arch::x86_64::__m128, 16>>),
+	/// Corresponds to [FeaturesF32::Avx64]
 	#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 	Avx64(AlignQuery<'a, TransmuteArray<std::arch::x86_64::__m256, 8>>),
+	/// Corresponds to [FeaturesF32::Avx512_64]
 	#[cfg(any(target_arch="x86_64", target_arch="x86"))]
 	Avx512_64(AlignQuery<'a, TransmuteArray<std::arch::x86_64::__m512, 4>>),
+	/// Corresponds to [FeaturesF32::Array64]
 	Array64(AlignQuery<'a, PackedArray<64>>),
 	Generic(SliceQuery<'a, [f32], Vec<f32>>),
+	/// Corresponds to [FeaturesF32::Generic]
 }
 
+/// Storage for f32 features
 pub(crate) enum FeaturesF32 {
 	// Specialize [f32; 64] because of SURF
+	/// SURF `[f32; 64]` => `[float32x4_t; 16]` (requires NEON)
 	#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 	Neon64(Vec<TransmuteArray<float32x4_t, 16>>),
 	/// `[f32; 64]` => `[__m128; 16]` (requires SSE2)
@@ -257,9 +273,13 @@ pub(crate) enum FeaturesF32 {
 	Avx512_64(Vec<TransmuteArray<std::arch::x86_64::__m512, 4>>),
 	/// SURF `[f32; 64]`
 	Array64(Vec<PackedArray<64>>),
+	/// Storage for feature lengths not specifically optimized
 	//TODO: specific generics
 	Generic {
+		/// Feature length
 		feature_len: usize,
+		/// Actual feature data, stored as a flat array
+		/// 
 		/// Invariant: data is always a multiple of feature_len
 		data: Vec<f32>,
 	},
@@ -283,6 +303,7 @@ impl<'a> DistanceQuery for QueryF32<'a> {
 }
 
 impl FeaturesF32 {
+	/// Number of features stored
 	pub(super) fn len(&self) -> usize {
 		match self {
 			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
@@ -298,6 +319,7 @@ impl FeaturesF32 {
 		}
 	}
 
+	/// Name describing storage type
 	pub(super) fn storage(&self) -> &'static str {
 		match self {
 			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
@@ -313,6 +335,7 @@ impl FeaturesF32 {
 		}
 	}
 
+	/// Feature length
 	pub(super) fn feature_len(&self) -> usize {
 		match self {
 			#[cfg(any(target_arch="aarch64", target_arch="arm"))]

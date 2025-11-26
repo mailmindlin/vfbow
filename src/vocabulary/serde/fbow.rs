@@ -39,11 +39,13 @@ struct FbowParams {
 	m_k: u32,
 }
 
+/// Helper to deserialize types from fixed-size data
 trait DeserializeFixed: Sized {
 	const SIZE: usize;
 	fn read(src: impl Read) -> io::Result<Self>;
 }
 
+/// Implement [DeserializeFixed] using `from_le_bytes`
 macro_rules! impl_desf_bytesle {
 	($($ty:ty)*) => {
 		$(
@@ -61,6 +63,7 @@ macro_rules! impl_desf_bytesle {
 }
 impl_desf_bytesle!(u16 u32 u64);
 
+/// Implement [DeserializeFixed] using [TryFrom]
 macro_rules! impl_desf_tryfrom {
 	($($src:ty => $dst:ty),*) => {
 		$(
@@ -82,6 +85,7 @@ impl_desf_tryfrom!(
 	u32 => DescriptorType
 );
 
+/// Read `N` padding bytes. Errors if padding wasn't zeroed
 fn read_padding<const N: usize>(src: &mut impl Read) -> io::Result<()> {
 	let mut buf = [0u8; N];
 	src.read_exact(&mut buf)?;
@@ -89,6 +93,7 @@ fn read_padding<const N: usize>(src: &mut impl Read) -> io::Result<()> {
 	Ok(())
 }
 
+/// Generates code to parse fields with padding
 //TODO: generate a vectored read version
 macro_rules! parse_fields {
 	{($src:expr)} => {};
@@ -116,15 +121,21 @@ macro_rules! parse_fields {
 	};
 }
 
+/// Options for reading from file
 pub(super) struct ReadFbowOptions {
 	/// Descriptor name was not terminated with a `\0` or invalid unicode
 	invalid_name: ParseValidationMode,
 	/// Padding bytes were not zero
 	nonzero_padding: ParseValidationMode,
+	/// Error handling: When a block has more children than `m_k`
 	too_many_children: ParseValidationMode,
+	/// Error handling: When a block contains inconsistent data (e.g., a value out of valid range)
 	inconsistent_block: ParseValidationMode,
+	/// Error handling: When a block has a non-unit (1.0) weight.
 	invalid_weight: ParseValidationMode,
+	/// Error handling: When a block contains a child that would create a cycle in the graph
 	block_cycle: ParseValidationMode,
+	/// Error handling: When a block contains a child index that doesn't exist
 	invalid_child: ParseValidationMode,
 	//TODO: swallow unexpected desc type?
 }
@@ -143,6 +154,7 @@ impl From<VocabularyReadOptions> for ReadFbowOptions {
 	}
 }
 
+/// Emit a warning
 macro_rules! warning {
 	($kind:expr, $fmt:literal $(, $($arg:tt)+)?) => {
 		if $kind >= ParseValidationMode::Warn {
@@ -197,6 +209,7 @@ fn parse_desc_name(desc_bytes: &[u8; 50], options: &ReadFbowOptions) -> io::Resu
 }
 
 impl FbowParams {
+	/// Read parameters from stream
 	fn read_from(mut src: impl Read, options: &ReadFbowOptions) -> std::io::Result<Self> {
 		let desc_name = {
 			// The field is 50 
@@ -296,6 +309,7 @@ struct BlockNodeInfo {
 }
 
 impl BlockNodeInfo {
+	/// Is this block a leaf?
 	fn is_leaf(&self) -> bool {
 		self.id_or_childblock & 0x80000000 != 0
 	}
@@ -319,6 +333,7 @@ fn take_bytes<'a, const N: usize>(data: &mut &'a [u8]) -> &'a [u8; N] {
 	b
 }
 
+/// Convert file u64 offset to usize (with debug checks)
 #[inline]
 fn convert_offset(offset: u64) -> usize {
 	if cfg!(debug_assertions) {
@@ -333,7 +348,9 @@ fn convert_offset(offset: u64) -> usize {
 }
 
 impl Block {
+	/// Size of file header (bytes)
 	const HEADER_SIZE: usize = 8;
+	/// Parse file header
 	fn parse_header(mut data: &[u8], bi: usize, params: &FbowParams, options: &ReadFbowOptions) -> io::Result<(u32, bool, u32)> {
 		assert_eq!(data.len(), Self::HEADER_SIZE);
 		
@@ -365,6 +382,7 @@ impl Block {
 		Ok((n, leaf, parent_id))
 	}
 
+	/// Parse a block of data
 	fn parse(data: &[u8], bi: usize, params: &FbowParams, options: &ReadFbowOptions) -> std::io::Result<Self> {
 		assert_eq!(data.len() as u64, params.block_size_bytes_wp, "Invalid block size");
 
@@ -456,7 +474,9 @@ impl Vocabulary {
 					// Reorder so leaves are at the end
 					let (leaves, branches) = {
 						enum LeafError {
+							/// Leaf id is out of bounds (>nblocks)
 							OutOfBounds(usize),
+							/// Leaf id would create a cycle
 							Cycle(usize),
 						}
 						let is_leaf = |child: &BlockNodeInfo| {
@@ -467,8 +487,8 @@ impl Vocabulary {
 							let id = child.id_or_childblock as usize;
 							if nblocks < id {
 								Err(LeafError::OutOfBounds(id))
-								// 
 							} else if id < block_id {
+								//TODO: I think this is always invalid, but should we support two blocks with the same subtree?
 								Err(LeafError::Cycle(id))
 							} else {
 								Ok(false)

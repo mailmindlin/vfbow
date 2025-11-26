@@ -1,20 +1,25 @@
 
-
+/// Scoring method
 #[cfg_attr(feature="python", pyo3::pyclass(module="vfbow", eq, eq_int))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Scoring {
+	/// L1 norm (Hamming distance)
 	L1,
+	/// L2 norm (Euclidean distance)
 	L2,
 	ChiSquare,
+	/// [Kullback–Leibler divergence](https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence)
 	KL,
 	Bhattacharyya,
+	/// Dot product
 	DotProduct,
 }
 
+/// L_n norm
 #[cfg_attr(feature="python", pyo3::pyclass(module="vfbow", eq, eq_int))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum LNorm {
-	/// L1 norm (manhattan distance)
+	/// L1 norm (manhattan/hamming distance)
 	L1 = 1,
 	/// L2 norm (euclidean distance)
 	L2 = 2,
@@ -43,6 +48,7 @@ pub(crate) trait ScoringMethods: Into<Scoring> {
     fn finish(score: f64) -> f64;
 }
 
+/// L1 (Hamming distance)
 pub(crate) struct L1;
 impl ScoringMethods for L1 {
 	const IGNORE_ZERO: bool = true;
@@ -65,6 +71,7 @@ impl ScoringMethods for L1 {
 	}
 }
 
+/// L2 (euclidean distance)
 pub(crate) struct L2;
 impl ScoringMethods for L2 {
 	const IGNORE_ZERO: bool = true;

@@ -1,3 +1,4 @@
+//! Common traits shared in this module
 use std::{borrow::{Borrow, Cow}, cmp::Ordering, mem::MaybeUninit};
 
 use ndarray::ArrayView1;
@@ -7,14 +8,20 @@ use super::DistanceQuery;
 /// Metric type
 trait Metric {}
 
+/// L1 metric (Hamming distance)
 pub(super) struct L1;
 impl Metric for L1 {}
+
+/// L2 metric (Euclidean distance)
 pub(super) struct L2;
 impl Metric for L2 {}
 
+/// DType that has a distance function
 pub(super) trait FeatureDistance {
+	/// Default metric (marker)
 	#[allow(private_bounds)]
 	type Metric: Metric;
+	/// Distance type
 	type Distance: DistanceOrd;
 	/// We return u32 here because I assume the descriptors are ≤ 2^29 bytes long
 	fn distance(&self, other: &Self) -> Self::Distance;
@@ -37,10 +44,18 @@ impl<E> ToArray<E> for [E] {
 	}
 }
 
+/// Helper construct self from arrays of elements
 // Copy bound is so we know there's a trivial destructor
 pub(super) trait FromArray<E>: Sized + Copy {
-	fn from_array<'a>(dst: &'a mut MaybeUninit<Self>, array: ArrayView1<'_, E>) -> &'a mut Self;
-	fn from_slice<'a>(dst: &'a mut MaybeUninit<Self>, array: &[E]) -> &'a mut Self;
+	/// Initialize `dst` with the values stored in `src`, returning a reference to the initialized value.
+	/// 
+	/// The returned reference MUST be the same as `dst`
+	fn from_array<'a>(dst: &'a mut MaybeUninit<Self>, src: ArrayView1<'_, E>) -> &'a mut Self;
+	/// Initialize `dst` with the values stored in `src`, returning a reference to the initialized value.
+	/// 
+	/// The returned reference MUST be the same as `dst`
+	fn from_slice<'a>(dst: &'a mut MaybeUninit<Self>, src: &[E]) -> &'a mut Self;
+	/// Get the stored values (try not to copy)
 	fn as_slice<'a>(&'a self) -> Cow<'a, [E]> where [E]: ToOwned;
 }
 
@@ -49,7 +64,7 @@ pub(crate) struct AlignQuery<'a, E: ToOwned + ?Sized, F = E> {
 	pub(super) value: Cow<'a, E>,
 }
 
-/// Convert ArrayView1 to Cow
+/// Convert ArrayView1 to Cow, trying not to copy
 fn array_to_cow<'a, E: FromArray<T>, T>(array: ArrayView1<'a, T>) -> Cow<'a, E> {
 	// It would be really great if we didn't have to copy the array
 	//TODO
@@ -77,6 +92,7 @@ fn array_to_cow<'a, E: FromArray<T>, T>(array: ArrayView1<'a, T>) -> Cow<'a, E> 
 #[allow(private_bounds)]
 impl<'a, E: FeatureDistance + ToOwned> AlignQuery<'a, E, E> {
 	pub(super) fn new<T>(features: &'a [E], array: ArrayView1<'a, T>) -> Self where E: FromArray<T> {
+	/// Construct from value array
 		Self {
 			features,
 			value: array_to_cow(array),
@@ -103,6 +119,7 @@ impl<'a, E: FeatureDistance + ToOwned + ?Sized, F: Borrow<E>> DistanceQuery for 
 }
 
 
+/// A [DistanceQuery] where the features are stored as a packed slice
 
 pub(crate) struct SliceQuery<'a, E: ToOwned + ?Sized, F = E> {
 	features: &'a [F],
@@ -157,6 +174,11 @@ impl DistanceOrd for f32 {
 
 
 /// Marker trait for types that all zeroes in memory is valid
+/// 
+/// # Safety
+/// Implementing this trait for a type where all-zeroes is not a valid value
+/// is undefined
+// TODO: Maybe replace with bytemuck?
 pub(super) unsafe trait ValidZeroBits {}
 unsafe impl ValidZeroBits for u8 {}
 unsafe impl ValidZeroBits for u32 {}

@@ -1,3 +1,4 @@
+//! Python FFI bindings, using `pyo3`
 mod dispatch;
 mod io;
 mod features_array;
@@ -111,25 +112,29 @@ impl PyVocabulary {
 		self.k()
 	}
 
-	/// Get number of features
+	/// Number of features
 	#[getter(num_features)]
 	fn py_num_features(&self) -> usize {
 		self.num_features()
 	}
 
+	/// Descriptor name
 	#[getter(desc_name)]
 	fn py_desc_name(&self) -> &str {
 		self.desc_name()
 	}
 
+	/// Total number of blocks
 	fn __len__(&self) -> usize {
 		self.size() as _
 	}
 
+	/// String description
 	fn __str__(&self) -> String {
 		format!("{:?}", self.0.as_ref())
 	}
 
+	/// String representation
 	fn __repr__(&self) -> String {
 		format!("{:?}", self.0.as_ref())
 	}
@@ -186,6 +191,7 @@ impl Database {
 		self.vocabulary().clone().into()
 	}
 
+	/// Insert features and 
 	#[pyo3(name="insert_transform")]
 	fn py_insert_transform<'py>(&mut self, py: Python<'py>, features: PyFeaturesLike<'py>) -> PyResult<Bound<'py, PyAny>> {
 		fn inner<'py, T: numpy::Element + VocabElement + Send + Sync + RefUnwindSafe>(py: Python<'py>, db: &mut Database, mut features: Vec<PyReadonlyArray2<'py, T>>) -> Result<Vec<usize>, TransformError> {

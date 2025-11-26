@@ -2,7 +2,7 @@ use ndarray::{Array1, Array2};
 
 use super::CreateVocabularyError;
 
-
+/// Helper type for [`FeatureInfo::finfo`]
 struct FeatureIndex {
 	/// Index into vector of matrices
 	midx: usize,
@@ -21,16 +21,26 @@ impl FeatureIndex {
 
 /// Struct to acces the features as a unique vector
 pub(super) struct FeatureInfo<T> {
+	/// Because we're pretending we squashed the arrays in `features`, we need a quick lookup structure to resolve get(i) -> features[midx][fidx].
+	/// 
+	/// We do this with a lot of memory by storing a table of `i -> (midx, fidx)`
 	//TODO: I bet we can save some memory (and cache misses!) by converting all of this to a binary search
 	finfo: Vec<FeatureIndex>,
+	/// Feature arrays
+	/// 
+	/// Invariant: all the elements are non-empty and have the same number of columns
 	features: Vec<Array2<T>>,
 }
 
 impl<T> FeatureInfo<T> {
+	/// Create from a list of 2d arrays
+	/// 
+	/// The input format is available for ergonomics, but is effectively squashed into a single `Array2<T>` by removing axis 0 from each element
 	pub(super) fn create(mut features: Vec<Array2<T>>) -> Result<Self, CreateVocabularyError> {
 		// Ignore empty arrays
 		features.retain(|feature| !feature.is_empty());
 
+		// Pick the feature size from the first one
 		let desc_cols = {
 			let Some(feature0) = features.first() else {
 				return Err(CreateVocabularyError::NoFeatures)
@@ -58,6 +68,7 @@ impl<T> FeatureInfo<T> {
 		Ok(Self { finfo, features })
 	}
 	
+	/// Feature length
 	pub(super) fn feature_len(&self) -> usize {
 		self.features[0].ncols()
 	}
@@ -74,6 +85,7 @@ impl<T> FeatureInfo<T> {
 }
 
 impl FeatureInfo<f32> {
+	/// Compute the mean of the features specified by `indices` (specialized for [f32] features)
 	pub(super) fn mean_value(&self, indices: impl ExactSizeIterator<Item = usize>) -> Array1<f32> {
 		let len = indices.len();
 		let mut mean = Array1::<f32>::zeros([self.feature_len()]);
@@ -89,6 +101,7 @@ impl FeatureInfo<f32> {
 }
 
 impl FeatureInfo<u8> {
+	/// Compute the mean of the features specified by `indices` (specialized for [u8] features)
 	pub(super) fn mean_value(&self, indices: impl ExactSizeIterator<Item = usize>) -> Array1<u8> {
 		let num_indices = indices.len();
 		let feature_len = self.feature_len();

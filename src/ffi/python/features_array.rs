@@ -10,26 +10,45 @@ pub(super) enum CowArray2Any<'a> {
 	F32(CowArray<'a, f32, Ix2>),
 }
 
+/// Helper to build Rust feature array from Python arguments.
+/// 
+/// We have to build a little state machine because the input could have different dtypes
+/// 
+/// Pseudocode:
+/// ```ignore
+/// let x = 2;
+/// ```
 #[derive(Debug)]
 pub(super) enum PyFeaturesLike<'py> {
-	Empty,//TODO: get rid of this variant?
+	/// Starting state, before any features have been inserted
+	//TODO: get rid of this variant?
+	Empty,
+	/// u8 features (nonempty)
 	U8(Vec<PyReadonlyArray2<'py, u8>>),
+	/// f32 features (nonempty)
 	F32(Vec<PyReadonlyArray2<'py, f32>>),
 }
 
 #[derive(Debug, thiserror::Error)]
 enum ReadonlyArray2Error<'py> {
+	/// Different features had different dtypes
 	#[error("Inconsistent feature dtypes")]
 	InconsistentDtype,
+	/// The input array had invalid number of dimensions (expected 2)
 	#[error("Invalid ndim (actual: {0}, expected: 2)")]
 	InvalidNdims(usize),
+	/// The input array was of an unsupported dtype (not uint8 or float32)
 	#[error("Unsupported dtype (actual: {0}, expected: uint8, float32)")]
 	UnsuppportedDtype(Bound<'py, PyArrayDescr>),
+	/// Ownership error when borrowing the array
 	#[error("Unable to borrow array at index {index}: {error}")]
 	Borrow {
+		/// Index that we were trying to read
 		index: usize,
+		/// The underlying borrow error
 		error: BorrowError,
 	},
+	/// Some other Python error
 	#[error(transparent)]
 	Py(#[from] PyErr),
 }
@@ -81,6 +100,7 @@ impl<'py> PyFeaturesLike<'py> {
 		}
 	}
 
+	/// Insert u8 feature
 	fn insert_u8(&mut self, value: &Bound<'py, PyArray2<u8>>, index: usize) -> Result<(), ReadonlyArray2Error<'_>> {
 		let value = py_read_array(value, index)?;
 		match self {
@@ -95,6 +115,7 @@ impl<'py> PyFeaturesLike<'py> {
 			_ => Err(ReadonlyArray2Error::InconsistentDtype),
 		}
 	}
+	/// Insert f32 feature
 	fn insert_f32(&mut self, value: &Bound<'py, PyArray2<f32>>, index: usize) -> Result<(), ReadonlyArray2Error<'_>> {
 		let value = py_read_array(value, index)?;
 		match self {
@@ -110,6 +131,7 @@ impl<'py> PyFeaturesLike<'py> {
 		}
 	}
 
+	/// Insert untyped feature
 	fn insert_dyn(&mut self, feature: &Bound<'py, PyUntypedArray>, index: usize) -> Result<(), ReadonlyArray2Error<'_>> {
 		let shape = feature.shape();
 		// Skip empty arrays
@@ -265,6 +287,9 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyFeaturesLike<'py> {
 	}
 }
 
+/// Try to read Python array as readonly, bubbling up borrow errors.
+/// 
+/// Index is just for error reporting.
 fn py_read_array<'py, T: numpy::Element, D: ndarray::Dimension>(value: &Bound<'py, PyArray<T, D>>, index: usize) -> Result<PyReadonlyArray<'py, T, D>, ReadonlyArray2Error<'static>> {
 	match value.try_readonly() {
 		Ok(value) => Ok(value),
