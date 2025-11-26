@@ -86,8 +86,8 @@ impl AnyDictPy {
 	}
 }
 
-#[pyclass(name="_PyDictView", sequence)]
 /// Key/value/item view for both [Bow] and [Features]
+#[pyclass(name="_PyDictView", sequence, module="vfbow")]
 #[derive(Debug)]
 struct PyDictView {
 	/// Base Python object ([Bow] or [Features])
@@ -718,7 +718,7 @@ impl Bow {
 	}
 }
 
-#[pyclass]
+#[pyclass(module="vfbow")]
 struct IntersectFeatures {
 	/// Node IDs present in all features
 	node_ids: Vec<u32>,
