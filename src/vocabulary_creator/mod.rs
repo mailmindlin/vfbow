@@ -233,6 +233,7 @@ impl VocabularyCreator {
 		self.build_vocabulary(root_node, desc_name, params.features.feature_len())
 	}
 
+	/// Build a [Vocabulary] from a root [creator node](Node)
 	fn build_vocabulary<T: VocabElement + Clone>(&self, mut root: Node<T>, desc_name: &str, desc_cols: usize) -> Result<Vocabulary, CreateVocabularyError> {
 		//look for leafs and store
 		//now, create the blocks

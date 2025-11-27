@@ -1,3 +1,4 @@
+//! Feature database
 use std::{borrow::Cow, collections::{BinaryHeap, HashMap}, num::NonZeroUsize, sync::Arc};
 
 use ndarray::ArrayView2;

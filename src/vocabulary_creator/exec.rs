@@ -149,6 +149,7 @@ impl<'a, T: DistFunc> InnerParams<'a, T> {
 			.collect()
 	}
 
+	/// Build a BranchNode from some feature_idxs
 	pub(super) fn create_level(&self, feature_idxs: &[FIndex]) -> BranchNode<'_, T> {
 		//trivial case, less features or equal than k (these are leaves)
 		if feature_idxs.len() <= self.params.k as _ {

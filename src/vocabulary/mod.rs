@@ -14,7 +14,7 @@ pub use serde::{ParseValidationMode, VocabularyReadOptions};
 
 /// A node in the vocabulary tree
 pub(crate) struct Node {
-	/// Node ID
+	/// Node ID (feature index)
 	base: u32,
 	/// Number of children (branches + leaves)
 	n: u32,

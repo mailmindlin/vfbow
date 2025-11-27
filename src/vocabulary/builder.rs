@@ -30,8 +30,13 @@ impl<T: FeatureType> BuilderShared<T> {
 	}
 }
 
+/// Helper to build a [Vocabulary] node
 pub(crate) struct NodeBuilder<'a, T: FeatureType> {
+	/// Shared data
 	shared: &'a BuilderShared<T>,
+	/// The node to build
+	/// 
+	/// Cleared after fill() is called, panics if filled when self is dropped
 	node: Option<&'a mut Node>,
 }
 
@@ -75,6 +80,7 @@ impl<'a, T: FeatureType> NodeBuilder<'a, T> {
 		Some(iter)
 	}
 
+	/// Fill node with leaf features
 	pub(crate) fn fill_leaf<'b>(mut self, leaf_feats: impl ExactSizeIterator<Item = ArrayView1<'b, T>>) where T: 'b {
 		let node = self.node.take().expect("Called fill twice");
 

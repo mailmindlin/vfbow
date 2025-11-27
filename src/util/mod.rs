@@ -1,3 +1,4 @@
+//! Utility methods and traits
 mod dtype;
 pub(crate) mod serde;
 pub(crate) mod scoring;

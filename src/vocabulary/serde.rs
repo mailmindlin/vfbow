@@ -12,7 +12,9 @@ const FBOW_MAGIC: u64 = 55824124;
 /// Magic number that vfbow files start with
 const VFBOW_MAGIC: u64 = 0x4CF8_F2CF_4209_F2E6;
 
-// We write in VFBOW format
+/// We write in VFBOW format
+/// 
+/// VFBOW format is probably slower than FBOW to parse (because we validate our pointers) but it's easily 25% smaller on disk
 impl Serialize for Vocabulary {
 	fn write_to(&self, mut dst: impl Write) -> std::io::Result<()> {
 		//magic number

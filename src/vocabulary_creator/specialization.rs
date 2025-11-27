@@ -1,3 +1,4 @@
+//! Dtype specialized methods for vocabulary creations
 use std::{fmt::Debug, num::NonZeroUsize};
 
 use ndarray::{linalg::Dot, Array1, ArrayView1};

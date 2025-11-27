@@ -443,6 +443,11 @@ impl Deserialize for FeaturesF32 {
 		let len = read_u32ish(&mut src)?;
 		let feature_len = read_u32ish(&mut src)?;
 
+		//TODO: vector reads
+		// const BUFFER_SIZE: usize = 256;
+		// let mut byte_buffer = vec![0u8; feature_len * size_of::<f32>() * BUFFER_SIZE];
+		// let mut feature_buffer = Vec::with_capacity(feature_len * BUFFER_SIZE);
+
 		let mut buf = vec![0u8; feature_len * size_of::<f32>()];
 		let features = (0..len)
 			.map::<std::io::Result<Vec<_>>, _>(|_| {
@@ -455,6 +460,7 @@ impl Deserialize for FeaturesF32 {
 			.collect::<Result<Vec<_>, _>>()?;
 		drop(buf);
 
+		//TODO: we should be able to eliminate this copy
 		let mut result = FeaturesF32::new(len, feature_len);
 		result.insert(
 			features

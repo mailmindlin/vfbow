@@ -41,7 +41,9 @@ struct FbowParams {
 
 /// Helper to deserialize types from fixed-size data
 trait DeserializeFixed: Sized {
+	/// Serialized size (bytes)
 	const SIZE: usize;
+	/// Read from stream
 	fn read(src: impl Read) -> io::Result<Self>;
 }
 
@@ -467,6 +469,7 @@ impl Vocabulary {
 				block_cache.insert(0, builder.root());
 				for (block_id, block) in blocks.into_iter().enumerate() {
 					if options.invalid_weight != ParseValidationMode::Ignore {
+						// Check that all children have unit weight
 						for child in &block.children {
 							if child.0.weight != 1.0 {
 								warning!(options.invalid_weight, "invalid weight {} on block {block_id}+", child.0.weight);
