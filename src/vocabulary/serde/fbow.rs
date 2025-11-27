@@ -527,9 +527,11 @@ impl Vocabulary {
 						(leaves, branches)
 					};
 					
-					let children = nb.fill(branches, |(_, feat)| {
-						ArrayView1::from(feat)
-					}, leaves.iter().map(|(_info, feat)| ArrayView1::from(feat)));
+					let children = nb.fill(
+						branches,
+						|(_, feat)| ArrayView1::from(feat),
+						leaves.iter().map(|(_info, feat)| ArrayView1::from(feat))
+					);
 					if let Some(children) = children {
 						for ((c_info, _), cb) in children {
 							block_cache.insert(c_info.id_or_childblock as usize, cb);
