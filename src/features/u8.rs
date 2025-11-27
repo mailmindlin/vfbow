@@ -12,7 +12,7 @@ use ndarray::{Array1, ArrayView1, CowArray, Dim, Ix, aview1};
 
 #[cfg(any(target_arch="aarch64", target_arch="arm"))]
 use super::distance_l1;
-use crate::{Deserialize, Serialize, features::shared::ToArray, util::convert::convert_le};
+use crate::{Deserialize, Serialize, features::shared::{SliceQuery, ToArray}, util::convert::convert_le};
 
 use super::{distance_l1::AccumulateL1, shared::{is_slice_packed, AlignQuery, FeatureDistance, FromArray, ValidZeroBits, L1}, DistanceQuery, FeatureType, Features, FeaturesGeneric};
 
@@ -231,7 +231,7 @@ pub(crate) enum QueryU8<'a> {
 	/// [FeaturesU8::Array61]
 	Array61(AlignQuery<'a, Padded8Array<8, 61>>),
 	/// [FeaturesU8::Generic]
-	Generic(AlignQuery<'a, [u8], Vec<u8>>),
+	Generic(SliceQuery<'a, u8>),
 }
 
 impl<'a> DistanceQuery for QueryU8<'a> {
@@ -371,7 +371,7 @@ impl Deserialize for FeaturesU8 {
 		use crate::util::serde::*;
 		let feature_len = read_u32(&mut src)? as usize;
 		let num_features = read_u32(&mut src)? as usize;
-		if src.is_read_vectored() {
+		let features = if src.is_read_vectored() {
 			let mut features = Vec::with_capacity(num_features);
 			features.extend((0..num_features).map(|_| vec![0u8; feature_len]));
 			let mut feature_bufs = features
@@ -381,7 +381,7 @@ impl Deserialize for FeaturesU8 {
 			//TODO: do we have to call this repeatedly?
 			let n = src.read_vectored(&mut feature_bufs)?;
 			assert_eq!(n, features.len() * feature_len);
-			todo!("FeaturesU8 read_from")
+			features
 		} else {
 			let mut features = Vec::with_capacity(num_features);
 			for _ in 0..num_features {
@@ -389,12 +389,13 @@ impl Deserialize for FeaturesU8 {
 				src.read_exact(&mut feature)?;
 				features.push(feature);
 			}
-			/*Ok(Self {
-				feature_len,
-				features,
-			})*/
-			todo!("FeaturesU8 read_from")
-		}
+			features
+		};
+
+		//TODO: I think we can elmininate this copy
+		let mut result = Self::new(num_features, feature_len);
+		result.insert(features.iter().map(ArrayView1::from));
+		Ok(result)
 	}
 }
 
