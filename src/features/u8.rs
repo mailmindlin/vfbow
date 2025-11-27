@@ -482,12 +482,7 @@ impl Features<u8> for FeaturesU8 {
 			FeaturesU8::Array61(features) => QueryU8::Array61(AlignQuery::new(features, value)),
 			FeaturesU8::Generic { feature_len, data } => {
 				assert_eq!(*feature_len, value.len(), "Value length mismatch");
-				let value = match value.to_slice() {
-					Some(slice) => Cow::Borrowed(slice),
-					None => Cow::Owned(value.to_vec()),
-				};
-				// QueryU8::Generic(SliceQuery { features: &data, value })
-				todo!("query generic u8")
+				QueryU8::Generic(SliceQuery::new(data, *feature_len, value))
 			},
 		}
 	}
