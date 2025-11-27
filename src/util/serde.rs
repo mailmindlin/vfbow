@@ -20,6 +20,11 @@ pub(crate) fn write_u32(value: u32, dst: &mut impl Write) -> std::io::Result<()>
 	let bytes = value.to_le_bytes();
 	dst.write_all(&bytes)
 }
+/// Write u64 to [Write]
+pub(crate) fn write_u64(value: u64, dst: &mut impl Write) -> std::io::Result<()> {
+	let bytes = value.to_le_bytes();
+	dst.write_all(&bytes)
+}
 
 /// Write usize as 4 bytes to [Write] (error on u32 overflow)
 pub(crate) fn write_u32ish(value: usize, dst: &mut impl Write) -> std::io::Result<()> {
@@ -35,6 +40,7 @@ pub(crate) fn read_u32(src: &mut impl Read) -> std::io::Result<u32> {
 	Ok(u32::from_le_bytes(bytes))
 }
 
+
 /// Read little-endian u32 but convert to usize
 pub(crate) fn read_u32ish(src: &mut impl Read) -> std::io::Result<usize> {
 	let mut bytes = [0u8; size_of::<u32>()];
@@ -42,4 +48,10 @@ pub(crate) fn read_u32ish(src: &mut impl Read) -> std::io::Result<usize> {
 	let raw = u32::from_le_bytes(bytes);
 	raw.try_into()
 		.map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "Integer overflow"))
+}
+
+pub(crate) fn read_u64(src: &mut impl Read) -> io::Result<u64> {
+	let mut buf = [0u8; size_of::<u64>()];
+	src.read_exact(&mut buf)?;
+	Ok(u64::from_le_bytes(buf))
 }
