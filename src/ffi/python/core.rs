@@ -323,6 +323,7 @@ impl PyDictView {
 			})
 		})
 	}
+	/// Helper method for [PyDictView::__contains__]
 	fn contains_inner<'py>(&self, py: Python<'py>, key: Bound<'py, PyAny>) -> PyResult<bool> {
 		let base = self.base.as_ref();
 		Ok(match base {
