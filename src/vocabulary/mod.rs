@@ -8,7 +8,7 @@ use std::{ffi::CStr, fmt::Debug, io::{self, ErrorKind, Read, Write}, str::FromSt
 use arrayvec::ArrayString;
 pub use node::NodePath;
 
-use crate::{fbow::{Bow, Features}, features::{DistanceQuery, FeatureType, FeaturesGeneric}, util::{DescriptorType, Deserialize, Serialize}};
+use crate::{fbow::{Bow, Features}, features::{DistanceQuery, FeatureType, FeaturesGeneric}, util::{DescriptorType, Deserialize, Serialize, serde::{read_u32, read_u32ish, read_u64, write_u32, write_u64, write_u32ish}}};
 pub(crate) use builder::VocabularyBuilder;
 pub use serde::{ParseValidationMode, VocabularyReadOptions};
 
@@ -178,17 +178,13 @@ impl Deserialize for VocabularyParams {
 		// let feature_off_start = read_u64(&mut src)?;
 		// let child_off_start = read_u64(&mut src)?;
 		let total_size = read_u64(&mut src)?;
-		let desc_type = match read_u32(&mut src)? {
-			0 => DescriptorType::Uint8,
-			5 => DescriptorType::Float32,
-			dt => return Err(io::Error::new(ErrorKind::InvalidData, format!("Unexpected desc_type {dt}"))),
-		};
-		let desc_size = read_u32(&mut src)?;
+		let desc_type = read_u32(&mut src)?.try_into()?;
+		let desc_size = read_u32ish(&mut src)?;
 		let m_k = read_u32(&mut src)?;
 
 		Ok(Self {
 			desc_name,
-			alignment: alignment as _,
+			alignment,
 			nblocks,
 			// desc_size_bytes_wp,
 			// block_size_bytes_wp,
@@ -196,7 +192,7 @@ impl Deserialize for VocabularyParams {
 			// child_off_start,
 			total_size,
 			desc_type,
-			desc_size: desc_size as _,
+			desc_size,
 			m_k,
 		})
 	}

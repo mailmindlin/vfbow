@@ -36,6 +36,12 @@ impl From<DescriptorType> for u32 {
 #[error("Invalid dtype: {0}")]
 pub struct InvalidDescriptorType(pub u32);
 
+impl From<InvalidDescriptorType> for std::io::Error {
+	fn from(value: InvalidDescriptorType) -> Self {
+		std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Unexpected dtype {}", value.0))
+	}
+}
+
 impl TryFrom<u32> for DescriptorType {
 	type Error = InvalidDescriptorType;
 
