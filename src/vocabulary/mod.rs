@@ -139,14 +139,17 @@ impl Serialize for VocabularyParams {
 			desc_bytes[..self.desc_name.len()].copy_from_slice(self.desc_name.as_bytes());
 			dst.write_all(&desc_bytes)?;
 		}
-		dst.write_all(&self.alignment.to_le_bytes())?;
-		dst.write_all(&self.nblocks.to_le_bytes())?;
+		write_u32ish(self.alignment, &mut dst)?;
+		write_u32(self.nblocks, &mut dst)?;
 		// dst.write_all(&self.desc_size_bytes_wp.to_le_bytes())?;
 		// dst.write_all(&self.block_size_bytes_wp.to_le_bytes())?;
 		// dst.write_all(&self.feature_off_start.to_le_bytes())?;
 		// dst.write_all(&self.child_off_start.to_le_bytes())?;
-		dst.write_all(&self.total_size.to_le_bytes())?;
-		dst.write_all(&self.m_k.to_le_bytes())
+		write_u64(self.total_size, &mut dst)?;
+		write_u32(self.desc_type.into(), &mut dst)?;
+		write_u32ish(self.desc_size, &mut dst)?;
+		write_u32(self.m_k, &mut dst)?;
+		Ok(())
 	}
 }
 
@@ -161,17 +164,7 @@ impl Deserialize for VocabularyParams {
 				.map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
 			ArrayString::from_str(str).unwrap() // I don't think we can overflow at this point
 		};
-		fn read_u32(src: &mut impl Read) -> io::Result<u32> {
-			let mut buf = [0u8; size_of::<u32>()];
-			src.read_exact(&mut buf)?;
-			Ok(u32::from_le_bytes(buf))
-		}
-		fn read_u64(src: &mut impl Read) -> io::Result<u64> {
-			let mut buf = [0u8; size_of::<u64>()];
-			src.read_exact(&mut buf)?;
-			Ok(u64::from_le_bytes(buf))
-		}
-		let alignment = read_u32(&mut src)?;
+		let alignment = read_u32ish(&mut src)?;
 		let nblocks = read_u32(&mut src)?;
 		// let desc_size_bytes_wp = read_u64(&mut src)?;
 		// let block_size_bytes_wp = read_u64(&mut src)?;
