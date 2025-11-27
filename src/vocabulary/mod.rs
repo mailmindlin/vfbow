@@ -2,6 +2,7 @@
 mod builder;
 mod serde;
 mod node;
+mod test;
 
 use std::{ffi::CStr, fmt::Debug, io::{self, ErrorKind, Read, Write}, str::FromStr, time::Instant};
 
@@ -42,7 +43,7 @@ impl Node {
 }
 
 /// Vocabulary parameters
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct VocabularyParams {
 	/// Descriptor name. May be empty
 	desc_name: ArrayString<49>, // 49 bytes + null terminator
@@ -322,7 +323,7 @@ impl Vocabulary {
 		//TODO: maybe let features convert it?
 		let mut path = Vec::with_capacity(max_level.unwrap_or(0));
 
-		let q = self.features.query(feature);
+		let query = self.features.query(feature);
 		let mut block = &self.root;
 
 		let mut cur_level = 0;//current level of recursion
@@ -335,18 +336,18 @@ impl Vocabulary {
 
 			// Find node with minimum distance
 			//given the current block, finds the node with minimum distance
-			let child_idx = q.min_index(block.base as _, block.n as _) as u32;
+			let child_idx = query.min_index(block.base as _, block.n as _);
 
-			assert!(child_idx < block.n);
+			assert!((child_idx as u32) < block.n);
 
-			if let Some(children) = block.children.as_ref() && ((child_idx as usize) < children.len()) {
+			if let Some(children) = block.children.as_ref() && (child_idx < children.len()) {
 				// Child is a branch
 				path.push(block);
-				block = &children[child_idx as usize];
+				block = &children[child_idx];
 				cur_level += 1;
 			} else {
 				// Child is a leaf
-				break Some(child_idx);
+				break Some(child_idx as _);
 			}
 		};
 		Ok(NodePath::new(self, path, child_offset))
