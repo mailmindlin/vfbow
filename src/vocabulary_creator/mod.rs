@@ -158,14 +158,14 @@ impl VocabularyCreator {
 		}
 
 		fn process<'f, 'n, T: VocabElement>(depth: usize, node: &'n mut Node<'f, T>, params: &'f InnerParams<'f, T>, queue: &mut impl JobQueue<'f, 'n, T>) {
-			println!("create_level L={}", depth);
+			if params.params.verbose { println!("create_level L={}", depth); }
 			let Node::Leaf(Leaf { feature, findices, .. }) = node else { unreachable!() };
 			// Take feature out of leaf
 			let feature = mem::replace(feature, empty_feature());
 
 			match params.create_level(findices) {
 				node::BranchNode::Terminal(children) => {
-					println!("\tTerminal children {}", children.len());
+					if params.params.verbose { println!("\tTerminal children {}", children.len()); }
 					*node = Node::TerminalBranch(TerminalBranch {
 						feature,
 						children,
@@ -184,7 +184,7 @@ impl VocabularyCreator {
 						// Add to stack
 						let Node::Branch(Branch { children, .. }) = node else { unreachable!() };
 
-						println!("\tpush {} intermediate children", children.len());
+						if params.params.verbose { println!("\tpush {} intermediate children", children.len()); }
 						// Now add children to stack
 						
 						for child in children.iter_mut() {
