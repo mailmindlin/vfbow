@@ -1,6 +1,5 @@
 
-use ndarray::CowArray;
-use numpy::Ix1;
+use ndarray::{CowArray, Dim, Ix};
 
 use super::{FeatureType, Node, Vocabulary};
 
@@ -62,7 +61,7 @@ impl<'a> NodeRef<'a> {
         }
     }
     #[allow(private_bounds)]
-    pub fn words<T: FeatureType>(&'_ self) -> Vec<CowArray<'_, T, Ix1>> {
+    pub fn words<T: FeatureType>(&'_ self) -> Vec<CowArray<'_, T, Dim<[Ix; 1]>>> {
         let node = *self.path.last().unwrap();
         match self.child_offset {
             Some(child_offset) => {

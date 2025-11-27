@@ -8,8 +8,7 @@ use std::arch::aarch64::uint8x16_t;
 #[cfg(target_arch="arm")]
 use std::arch::arm::uint8x16_t;
 
-use ndarray::{aview1, Array1, ArrayView1, CowArray};
-use numpy::Ix1;
+use ndarray::{Array1, ArrayView1, CowArray, Dim, Ix, aview1};
 
 #[cfg(any(target_arch="aarch64", target_arch="arm"))]
 use super::distance_l1;
@@ -492,7 +491,7 @@ impl Features<u8> for FeaturesU8 {
 		}
 	}
 
-	fn get<'a>(&'a self, index: usize) -> Option<CowArray<'a, u8, Ix1>> {
+	fn get<'a>(&'a self, index: usize) -> Option<CowArray<'a, u8, Dim<[Ix; 1]>>> {
 		let slice = match self {
 			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			FeaturesU8::Neon32(vec) => ToArray::as_slice(vec.get(index)?),

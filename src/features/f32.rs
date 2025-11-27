@@ -13,7 +13,7 @@ use std::arch::{is_x86_feature_detected, x86_64::{__m128, __m256, __m512}};
 use std::arch::{is_x86_feature_detected, x86::{__m128, __m256, __m512}};
 use std::{borrow::Cow, mem::{MaybeUninit, offset_of}};
 
-use ndarray::ArrayView1;
+use ndarray::{ArrayView1, Dim, Ix};
 
 #[cfg(any(target_arch="x86_64", target_arch="x86"))]
 use crate::features::distance_l2::{l2_avx512_array, l2_avx_array, l2_sse_array};
@@ -551,7 +551,7 @@ impl super::Features<f32> for FeaturesF32 {
 		}
 	}
 
-	fn get<'a>(&'a self, index: usize) -> Option<ndarray::CowArray<'a, f32, numpy::Ix1>> {
+	fn get<'a>(&'a self, index: usize) -> Option<ndarray::CowArray<'a, f32, Dim<[Ix; 1]>>> {
 		let slice = match self {
 			#[cfg(any(target_arch="aarch64", target_arch="arm"))]
 			Self::Neon64(vec) => ToArray::as_slice(vec.get(index)?),
